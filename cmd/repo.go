@@ -6,7 +6,6 @@ import (
 	"github.com/google/go-github/github"
 	"context"
 	log "github.com/sirupsen/logrus"
-	"strings"
 	"fmt"
 )
 
@@ -23,7 +22,7 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := context.Background()
 		ts := oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: "6406ad6ccc97fec5abc99388459e50beb8d7a640"},
+			&oauth2.Token{AccessToken: "1461a2b4c9c43d352d6e57e2fa9a7def8bffcdf7"},
 		)
 		tc := oauth2.NewClient(ctx, ts)
 
@@ -46,23 +45,27 @@ to quickly create a Cobra application.`,
 		// 	fmt.Printf("%s (%d), ", cs.GetAuthor().GetLogin(), cs.GetTotal())
 		// }
 
-		var logins []string
-		parseContributors(ctx, client, owner, repo, func(contributor *github.Contributor) {
-			logins = append(logins, contributor.GetLogin())
-		})
-		fmt.Printf("Contributors: \n\n%s\n\n", strings.Join(logins, ", "))
+		// var logins []string
+		// parseContributors(ctx, client, owner, repo, func(contributor *github.Contributor) {
+		// 	logins = append(logins, contributor.GetLogin())
+		// })
+		// fmt.Printf("Contributors: \n\n%s\n\n", strings.Join(logins, ", "))
 
-		var forks []string
 		parseForks(ctx, client, owner, repo, func(repo *github.Repository) {
-			forks = append(forks, repo.GetFullName())
+			user, _, err := client.Users.Get(ctx, repo.Owner.GetLogin())
+			if err != nil {
+				log.Fatalf("Could not find user %s", repo.Owner.GetLogin())
+			}
+			if user.Location != nil {
+				fmt.Printf("%s (%s), ", user.GetLogin(), user.GetLocation())
+			}
 		})
-		fmt.Printf("Forks: \n\n%s\n\n", strings.Join(forks, ", "))
 
-		var stargazers []string
-		parseStargazers(ctx, client, owner, repo, func(stargazer *github.Stargazer) {
-			stargazers = append(forks, stargazer.GetUser().GetLogin())
-		})
-		fmt.Printf("Stargazers: \n\n%s\n\n", strings.Join(stargazers, ", "))
+		// var stargazers []string
+		// parseStargazers(ctx, client, owner, repo, func(stargazer *github.Stargazer) {
+		// 	stargazers = append(forks, stargazer.GetUser().GetLogin())
+		// })
+		// fmt.Printf("Stargazers: \n\n%s\n\n", strings.Join(stargazers, ", "))
 
 		// searchResult, _, err := client.Search.Users(ctx, "location:Berlin",
 		// 	&github.SearchOptions{Sort: "forks", Order: "desc", ListOptions: github.ListOptions{PerPage: 100}})
