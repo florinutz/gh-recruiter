@@ -12,62 +12,47 @@ type fetcher struct {
 	repo   string
 }
 
+func (f *fetcher) GetRepo() string {
+	return f.repo
+}
+
+func (f *fetcher) GetOwner() string {
+	return f.owner
+}
+
+func (f *fetcher) GetClient() *github.Client {
+	return f.client
+}
+
 func NewFetcher(client *github.Client, owner string, repo string) *fetcher {
 	return &fetcher{client: client, owner: owner, repo: repo}
 }
 
-func (f *fetcher) ParseContributors(
-	ctx context.Context,
-	callback func(contributorsChunk []*github.Contributor) error,
-) error {
-	page := 0
-
-	for true {
-		page++
-
-		chunk, response, err := f.client.Repositories.ListContributors(ctx, f.owner, f.repo,
-			&github.ListContributorsOptions{Anon: "false", ListOptions: github.ListOptions{Page: page, PerPage: 200}})
-
-		if err != nil {
-			if IsRateLimitError(err) {
-				return errors.Wrap(err, "critical error while fetching contributors")
-			}
-			continue
-		}
-
-		if err = callback(chunk); err != nil {
-			return errors.Wrap(err, "contributors chunk error")
-		}
-
-		if page >= response.LastPage {
-			break
-		}
-	}
-
-	return nil
+type ParserCallbacks struct {
+	ChunkProcessor func(chunk []interface{}) error
+	Fetcher func(f *fetcher, ctx context.Context, page int) ([]interface{}, *github.Response, error)
 }
 
-func (f *fetcher) ParseForks(
+func (f *fetcher) parse(
 	ctx context.Context,
-	callback func(reposChunk []*github.Repository) error,
+	callbacks ParserCallbacks,
 ) error {
 	page := 0
 
 	for true {
 		page++
 
-		chunk, response, err := f.client.Repositories.ListForks(ctx, f.owner, f.repo,
-			&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: 200}})
+		chunk, response, err := callbacks.Fetcher(f, ctx, page)
 
 		if err != nil {
 			if IsRateLimitError(err) {
-				return errors.Wrap(err, "problem fetching forks")
+				return errors.Wrap(err, "problem fetching stargazers")
 			}
 			continue
 		}
 
-		if err = callback(chunk); err != nil {
-			return errors.Wrap(err, "forks chunk error")
+		if err = callbacks.ChunkProcessor(chunk); err != nil {
+			return errors.Wrap(err, "stargazers chunk error")
 		}
 
 		if page >= response.LastPage {
@@ -81,32 +66,106 @@ func (f *fetcher) ParseForks(
 func (f *fetcher) ParseStargazers(
 	ctx context.Context,
 	callback func(stargazer []*github.Stargazer) error,
-) error {
-	page := 0
-
-	for true {
-		page++
-
-		chunk, response, err := f.client.Activity.ListStargazers(ctx, f.owner, f.repo,
-			&github.ListOptions{Page: page, PerPage: 200})
-
-		if err != nil {
-			if IsRateLimitError(err) {
-				return errors.Wrap(err, "problem fetching stargazers")
+) (err error) {
+	return f.parse(ctx, ParserCallbacks{
+		Fetcher: func (f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
+			chunk, response, err := f.GetClient().Activity.ListStargazers(ctx, f.GetOwner(), f.GetRepo(),
+				&github.ListOptions{Page: page, PerPage: 200})
+			if err != nil {
+				return nil, response, err
 			}
-			continue
-		}
 
-		if err = callback(chunk); err != nil {
-			return errors.Wrap(err, "stargazers chunk error")
-		}
+			for _, element := range chunk {
+				results = append(results, interface{}(element))
+			}
 
-		if page >= response.LastPage {
-			break
-		}
-	}
+			return
+		},
+		ChunkProcessor: func(chunk []interface{}) error {
+			var elementsChunk []*github.Stargazer
+			for _, el := range chunk {
+				if element, ok := el.(*github.Stargazer); !ok {
+					return errors.New("one in chunk wasn't a stargazer")
+				} else {
+					elementsChunk = append(elementsChunk, element)
+				}
+			}
 
-	return nil
+			callback(elementsChunk)
+
+			return nil
+		},
+	})
+}
+
+func (f *fetcher) ParseContributors(
+	ctx context.Context,
+	callback func(contributorsChunk []*github.Contributor) error,
+) error {
+	return f.parse(ctx, ParserCallbacks{
+		Fetcher: func (f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
+			chunk, response, err := f.GetClient().Repositories.ListContributors(ctx, f.GetOwner(), f.GetRepo(),
+				&github.ListContributorsOptions{Anon: "false", ListOptions: github.ListOptions{Page: page, PerPage: 200}})
+			if err != nil {
+				return nil, response, err
+			}
+
+			for _, element := range chunk {
+				results = append(results, interface{}(element))
+			}
+
+			return
+		},
+		ChunkProcessor: func(chunk []interface{}) error {
+			var elementsChunk []*github.Contributor
+			for _, el := range chunk {
+				if element, ok := el.(*github.Contributor); !ok {
+					return errors.New("one in chunk wasn't a contributor")
+				} else {
+					elementsChunk = append(elementsChunk, element)
+				}
+			}
+
+			callback(elementsChunk)
+
+			return nil
+		},
+	})
+}
+
+func (f *fetcher) ParseForks(
+	ctx context.Context,
+	callback func(reposChunk []*github.Repository) error,
+) error {
+	return f.parse(ctx, ParserCallbacks{
+		Fetcher: func (f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
+			chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(),
+				&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: 200}})
+			if err != nil {
+				return nil, response, err
+			}
+
+			for _, element := range chunk {
+				results = append(results, interface{}(element))
+			}
+
+			return
+		},
+		ChunkProcessor: func(chunk []interface{}) error {
+			var elementsChunk []*github.Repository
+			for _, el := range chunk {
+				if element, ok := el.(*github.Repository); !ok {
+					return errors.New("one in chunk wasn't a fork")
+				} else {
+					elementsChunk = append(elementsChunk, element)
+				}
+			}
+
+			callback(elementsChunk)
+
+			return nil
+		},
+	})
 }
 
 func IsRateLimitError(err error) bool {

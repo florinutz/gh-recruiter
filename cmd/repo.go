@@ -58,6 +58,7 @@ var repoCmd = &cobra.Command{
 					}
 					continue
 				}
+
 				if user.Location != nil {
 					fmt.Printf("%s (%s), ", user.GetLogin(), user.GetLocation())
 				}
