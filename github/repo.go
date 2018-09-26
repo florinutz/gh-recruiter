@@ -30,7 +30,7 @@ func NewFetcher(client *github.Client, owner string, repo string) *fetcher {
 
 type ParserCallbacks struct {
 	ChunkProcessor func(chunk []interface{}) error
-	Fetcher func(f *fetcher, ctx context.Context, page int) ([]interface{}, *github.Response, error)
+	Fetcher        func(f *fetcher, ctx context.Context, page int) ([]interface{}, *github.Response, error)
 }
 
 func (f *fetcher) parse(
@@ -68,7 +68,7 @@ func (f *fetcher) ParseStargazers(
 	callback func(stargazer []*github.Stargazer) error,
 ) (err error) {
 	return f.parse(ctx, ParserCallbacks{
-		Fetcher: func (f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
+		Fetcher: func(f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
 			chunk, response, err := f.GetClient().Activity.ListStargazers(ctx, f.GetOwner(), f.GetRepo(),
 				&github.ListOptions{Page: page, PerPage: 200})
 			if err != nil {
@@ -103,7 +103,7 @@ func (f *fetcher) ParseContributors(
 	callback func(contributorsChunk []*github.Contributor) error,
 ) error {
 	return f.parse(ctx, ParserCallbacks{
-		Fetcher: func (f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
+		Fetcher: func(f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
 			chunk, response, err := f.GetClient().Repositories.ListContributors(ctx, f.GetOwner(), f.GetRepo(),
 				&github.ListContributorsOptions{Anon: "false", ListOptions: github.ListOptions{Page: page, PerPage: 200}})
 			if err != nil {
@@ -138,7 +138,7 @@ func (f *fetcher) ParseForks(
 	callback func(reposChunk []*github.Repository) error,
 ) error {
 	return f.parse(ctx, ParserCallbacks{
-		Fetcher: func (f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
+		Fetcher: func(f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
 			chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(),
 				&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: 200}})
 			if err != nil {
