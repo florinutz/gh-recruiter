@@ -46,13 +46,13 @@ func (f *fetcher) parse(
 
 		if err != nil {
 			if IsRateLimitError(err) {
-				return errors.Wrap(err, "problem fetching stargazers")
+				return errors.Wrap(err, "problem fetching chunk")
 			}
 			continue
 		}
 
 		if err = callbacks.ChunkProcessor(chunk); err != nil {
-			return errors.Wrap(err, "stargazers chunk error")
+			return errors.Wrap(err, "chunk processing error")
 		}
 
 		if page >= response.LastPage {
