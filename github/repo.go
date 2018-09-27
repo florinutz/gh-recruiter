@@ -140,7 +140,7 @@ func (f *fetcher) ParseForks(
 	return f.parse(ctx, ParserCallbacks{
 		Fetcher: func(f *fetcher, ctx context.Context, page int) (results []interface{}, response *github.Response, err error) {
 			chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(),
-				&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: 200}})
+				&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: 10}})
 			if err != nil {
 				return nil, response, err
 			}

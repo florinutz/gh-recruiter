@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
+	"strings"
 )
 
 // repoCmd represents the repo command
@@ -64,20 +65,36 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	// fmt.Printf("Contributors: \n\n%s\n\n", strings.Join(logins, ", "))
 
 	err = fetcher.ParseForks(ctx, func(reposChunk []*github.Repository) error {
+		var strPieces []string
+
 		for _, repo := range reposChunk {
-			user, _, err := client.Users.Get(ctx, repo.Owner.GetLogin())
+			err = fillRepoOwner(ctx, client, repo)
 			if err != nil {
-				if github2.IsRateLimitError(err) {
-					return errors.Wrapf(err, "reached rate limit while fetching user %s's data",
-						repo.Owner.GetLogin())
-				}
-				continue
+				log.WithError(err).Fatal("error while fetching repo user")
 			}
 
-			if user.Location != nil {
-				fmt.Printf("%s (%s), ", user.GetLogin(), user.GetLocation())
+			var piece string
+
+			if repoConfig.location != "" {
+				if strings.Contains(strings.ToLower(repo.GetOwner().GetLocation()),
+					strings.ToLower(repoConfig.location)) {
+					piece = fmt.Sprintf("%s (%s)", repo.GetCloneURL(), repo.GetOwner().GetLocation())
+				}
+			} else {
+				if repo.GetOwner().GetLocation() == "" {
+					piece = fmt.Sprintf("%s", repo.GetCloneURL())
+				} else {
+					piece = fmt.Sprintf("%s (%s)", repo.GetCloneURL(), repo.GetOwner().GetLocation())
+				}
+				strPieces = append(strPieces)
+			}
+
+			if piece != "" {
+				strPieces = append(strPieces, piece)
 			}
 		}
+
+		fmt.Print(strings.Join(strPieces, ", ") + ", ")
 
 		return nil
 	})
@@ -98,4 +115,18 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	// 	log.WithError(err).Errorln("problem searching users")
 	// }
 	// fmt.Printf("\n\nfound total %d users", searchResult.GetTotal())
+}
+
+func fillRepoOwner(ctx context.Context, client *github.Client, repo *github.Repository) error {
+	user, _, err := client.Users.Get(ctx, repo.Owner.GetLogin())
+	if err != nil {
+		if github2.IsRateLimitError(err) {
+			return errors.Wrapf(err, "reached rate limit while fetching user %s's data", repo.Owner.GetLogin())
+		} else {
+			return errors.Wrapf(err, "error while fetching user %s", repo.Owner.GetLogin())
+		}
+	}
+	repo.Owner = user
+
+	return nil
 }
