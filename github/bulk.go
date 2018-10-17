@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/google/go-github/github"
 	"github.com/pkg/errors"
-	"sync"
 )
 
 type fetcher struct {
@@ -40,16 +39,15 @@ func (f *fetcher) ParseForks(ctx context.Context) error {
 	const chunkSize = 10
 
 	results := make(chan fetchResult)
+	lastPage := make(chan int)
 
-	go func(out chan<- fetchResult) {
-		var wg sync.WaitGroup
-
+	go func(out chan<- fetchResult, lastPage chan int) {
 		for {
-			go func() {
+			go func(page int) {
 				chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(),
 					&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: chunkSize}})
 				out <- fetchResult{chunk, response, err}
-			}()
+			}(1)
 		}
 		close(out)
 
@@ -68,7 +66,7 @@ func (f *fetcher) ParseForks(ctx context.Context) error {
 		// 		break
 		// 	}
 		// }
-	}(results)
+	}(results, lastPage)
 
 	for fetchResult := range results {
 		err := fetchResult.err
