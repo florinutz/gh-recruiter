@@ -10,7 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
-	"strings"
 )
 
 // repoCmd represents the repo command
@@ -23,11 +22,12 @@ var repoCmd = &cobra.Command{
 
 var repoConfig struct {
 	location string
+	csv      bool
 }
 
 func init() {
-	repoCmd.Flags().StringVarP(&repoConfig.location, "location", "l", "",
-		"location filter")
+	repoCmd.Flags().StringVarP(&repoConfig.location, "location", "l", "", "location filter")
+	repoCmd.Flags().BoolVarP(&repoConfig.csv, "csv", "c", false, "csv output")
 
 	rootCmd.AddCommand(repoCmd)
 }
@@ -64,40 +64,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	// })
 	// fmt.Printf("Contributors: \n\n%s\n\n", strings.Join(logins, ", "))
 
-	err = fetcher.ParseForks(ctx, func(reposChunk []*github.Repository) error {
-		var strPieces []string
-
-		for _, repo := range reposChunk {
-			err = fillRepoOwner(ctx, client, repo)
-			if err != nil {
-				log.WithError(err).Fatal("error while fetching repo user")
-			}
-
-			var piece string
-
-			if repoConfig.location != "" {
-				if strings.Contains(strings.ToLower(repo.GetOwner().GetLocation()),
-					strings.ToLower(repoConfig.location)) {
-					piece = fmt.Sprintf("%s (%s)", repo.GetCloneURL(), repo.GetOwner().GetLocation())
-				}
-			} else {
-				if repo.GetOwner().GetLocation() == "" {
-					piece = fmt.Sprintf("%s", repo.GetCloneURL())
-				} else {
-					piece = fmt.Sprintf("%s (%s)", repo.GetCloneURL(), repo.GetOwner().GetLocation())
-				}
-				strPieces = append(strPieces)
-			}
-
-			if piece != "" {
-				strPieces = append(strPieces, piece)
-			}
-		}
-
-		fmt.Print(strings.Join(strPieces, ", ") + ", ")
-
-		return nil
-	})
+	err = fetcher.ParseForks(ctx)
 
 	if err != nil {
 		log.WithError(err).Fatal("error while parsing forks")
