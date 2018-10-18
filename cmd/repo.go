@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
+	"time"
 )
 
 // repoCmd represents the repo command
@@ -64,8 +65,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	// })
 	// fmt.Printf("Contributors: \n\n%s\n\n", strings.Join(logins, ", "))
 
-	err = fetcher.ParseForks(ctx)
-
+	err = fetcher.ParseForks(ctx, 10, 5*time.Second)
 	if err != nil {
 		log.WithError(err).Fatal("error while parsing forks")
 	}

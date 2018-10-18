@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/go-github/github"
-	"github.com/pkg/errors"
+	"sync"
+	"time"
 )
 
 type fetcher struct {
@@ -29,58 +30,64 @@ func NewFetcher(client *github.Client, owner string, repo string) *fetcher {
 	return &fetcher{client: client, owner: owner, repo: repo}
 }
 
-func (f *fetcher) ParseForks(ctx context.Context) error {
-	type fetchResult struct {
-		chunk    []*github.Repository
-		response *github.Response
-		err      error
-	}
+type ForksFetchResult struct {
+	chunk    []*github.Repository
+	response *github.Response
+	err      error
+}
 
-	const chunkSize = 10
-
-	results := make(chan fetchResult)
-	lastPage := make(chan int)
-
-	go func(out chan<- fetchResult, lastPage chan int) {
-		for {
-			go func(page int) {
-				chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(),
-					&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: chunkSize}})
-				out <- fetchResult{chunk, response, err}
-			}(1)
-		}
-		close(out)
-
-		// page := 0
-		// for true {
-		// 	page++
-		// 	chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(),
-		// 		&github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: 10}})
-		//
-		// 	fetchResult := fetchResult{chunk, response, err}
-		//
-		// 	out <- fetchResult
-		//
-		// 	if page >= response.LastPage {
-		// 		close(out)
-		// 		break
-		// 	}
-		// }
-	}(results, lastPage)
-
-	for fetchResult := range results {
-		err := fetchResult.err
-		if err != nil {
-			if IsRateLimitError(err) {
-				return errors.Wrap(err, "problem fetching chunk")
+func (f *fetcher) ParseForks(ctx context.Context, perPage int, timeout time.Duration) error {
+	pageGetter := func(page int, out chan<- ForksFetchResult, totalPages int, mutex *sync.Mutex) {
+		opt := &github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: perPage}}
+		chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(), opt)
+		out <- ForksFetchResult{chunk, response, err}
+		if totalPages > 0 {
+			if totalPages == len(out) {
+				close(out)
 			}
 		}
-		for _, repo := range fetchResult.chunk {
-			fmt.Printf("%s\n", *repo.URL)
+	}
+
+	resultsChan := make(chan ForksFetchResult)
+
+	mutex := &sync.Mutex{}
+
+	go pageGetter(1, resultsChan, 0, mutex)
+
+	firstPageResults := <-resultsChan
+	parseForksFetchResult(1, firstPageResults)
+
+	totalPages := firstPageResults.response.LastPage
+	if totalPages > 1 {
+		for page := 2; page <= totalPages; page++ {
+			go pageGetter(page, resultsChan, totalPages, mutex)
+		}
+	}
+
+	for page := 1; page < totalPages; page++ {
+		select {
+		case call := <-resultsChan:
+			parseForksFetchResult(page, call)
+		case <-time.After(timeout):
+			fmt.Println("timeout")
 		}
 	}
 
 	return nil
+}
+
+func parseForksFetchResult(page int, call ForksFetchResult) {
+	err := call.err
+	if err != nil {
+		if IsRateLimitError(err) {
+			fmt.Printf("rate limit hit while fetching page %d\n", page)
+		} else {
+			fmt.Printf("problem fetching page %d\n", page)
+		}
+	}
+	for _, repo := range call.chunk {
+		fmt.Printf("%s\n", *repo.URL)
+	}
 }
 
 func IsRateLimitError(err error) bool {
