@@ -54,27 +54,16 @@ func RunRepo(cmd *cobra.Command, args []string) {
 
 	fetcher := github2.NewFetcher(client, owner, repo)
 
-	// contributorsStats, _, err := client.Repositories.ListContributorsStats(ctx, args[0], args[1])
-	// for _, cs := range contributorsStats {
-	// 	fmt.Printf("%s (%d), ", cs.GetAuthor().GetLogin(), cs.GetTotal())
+	// fetcher.ParseForks(ctx, 10, 5*time.Second, parseForksFetchResult)
+
+	// err = fetcher.ParseContributorsStats(ctx, 10, 5*time.Second, parseContributorsStatsFetchResult)
+	// if err != nil {
+	// 	log.Fatal(err)
 	// }
 
-	// var logins []string
-	// parseContributors(ctx, client, owner, repo, func(contributor *github.Contributor) {
-	// 	logins = append(logins, contributor.GetLogin())
-	// })
-	// fmt.Printf("Contributors: \n\n%s\n\n", strings.Join(logins, ", "))
+	// fetcher.ParseContributors(ctx, 10, 5*time.Second, parseContributorsFetchResult)
 
-	err = fetcher.ParseForks(ctx, 10, 5*time.Second)
-	if err != nil {
-		log.WithError(err).Fatal("error while parsing forks")
-	}
-
-	// var stargazers []string
-	// parseStargazers(ctx, client, owner, repo, func(stargazer *github.Stargazer) {
-	// 	stargazers = append(forks, stargazer.GetUser().GetLogin())
-	// })
-	// fmt.Printf("Stargazers: \n\n%s\n\n", strings.Join(stargazers, ", "))
+	fetcher.ParseStargazers(ctx, 10, 5*time.Second, parseStargazersFetchResult)
 
 	// searchResult, _, err := client.Search.Users(ctx, "location:Berlin",
 	// 	&github.SearchOptions{Sort: "forks", Order: "desc", ListOptions: github.ListOptions{PerPage: 100}})
@@ -82,6 +71,19 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	// 	log.WithError(err).Errorln("problem searching users")
 	// }
 	// fmt.Printf("\n\nfound total %d users", searchResult.GetTotal())
+}
+func parseContributorsFetchResult(page int, call github2.ContributorsFetchResult) {
+	err := call.Err
+	if err != nil {
+		if github2.IsRateLimitError(err) {
+			fmt.Printf("rate limit hit while fetching page %d\n", page)
+		} else {
+			fmt.Printf("problem fetching page %d\n", page)
+		}
+	}
+	for _, repo := range call.Chunk {
+		fmt.Printf("%s\n", *repo.URL)
+	}
 }
 
 func fillRepoOwner(ctx context.Context, client *github.Client, repo *github.Repository) error {
@@ -96,4 +98,46 @@ func fillRepoOwner(ctx context.Context, client *github.Client, repo *github.Repo
 	repo.Owner = user
 
 	return nil
+}
+
+func parseForksFetchResult(page int, call github2.ForksFetchResult) {
+	err := call.Err
+	if err != nil {
+		if github2.IsRateLimitError(err) {
+			fmt.Printf("rate limit hit while fetching page %d\n", page)
+		} else {
+			fmt.Printf("problem fetching page %d\n", page)
+		}
+	}
+	for _, repo := range call.Chunk {
+		fmt.Printf("%s\n", *repo.URL)
+	}
+}
+
+func parseContributorsStatsFetchResult(page int, call github2.ContributorsStatsFetchResult) {
+	err := call.Err
+	if err != nil {
+		if github2.IsRateLimitError(err) {
+			fmt.Printf("rate limit hit while fetching page %d\n", page)
+		} else {
+			fmt.Printf("problem fetching page %d\n", page)
+		}
+	}
+	for _, cs := range call.Chunk {
+		fmt.Printf("%s (%d)\n", cs.GetAuthor().GetLogin(), cs.GetTotal())
+	}
+}
+
+func parseStargazersFetchResult(page int, call github2.StargazersFetchResult) {
+	err := call.Err
+	if err != nil {
+		if github2.IsRateLimitError(err) {
+			fmt.Printf("rate limit hit while fetching page %d\n", page)
+		} else {
+			fmt.Printf("problem fetching page %d\n", page)
+		}
+	}
+	for _, sg := range call.Chunk {
+		fmt.Printf("%s\n", sg.User.GetURL())
+	}
 }
