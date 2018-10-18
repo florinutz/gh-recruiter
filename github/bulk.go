@@ -41,10 +41,8 @@ func (f *fetcher) ParseForks(ctx context.Context, perPage int, timeout time.Dura
 		opt := &github.RepositoryListForksOptions{ListOptions: github.ListOptions{Page: page, PerPage: perPage}}
 		chunk, response, err := f.GetClient().Repositories.ListForks(ctx, f.GetOwner(), f.GetRepo(), opt)
 		out <- ForksFetchResult{chunk, response, err}
-		if totalPages > 0 {
-			if totalPages == len(out) {
-				close(out)
-			}
+		if totalPages != 0 && totalPages == len(out) {
+			close(out)
 		}
 	}
 
