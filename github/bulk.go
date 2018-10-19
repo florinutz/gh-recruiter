@@ -2,12 +2,14 @@ package github
 
 import (
 	"github.com/google/go-github/github"
+	"github.com/gregjones/httpcache"
 )
 
 type fetcher struct {
 	client *github.Client
 	owner  string
 	repo   string
+	cache  httpcache.Cache
 }
 
 func (f *fetcher) GetRepo() string {
@@ -22,8 +24,8 @@ func (f *fetcher) GetClient() *github.Client {
 	return f.client
 }
 
-func NewFetcher(client *github.Client, owner string, repo string) *fetcher {
-	return &fetcher{client: client, owner: owner, repo: repo}
+func NewFetcher(client *github.Client, owner string, repo string, cache httpcache.Cache) *fetcher {
+	return &fetcher{client: client, owner: owner, repo: repo, cache: cache}
 }
 
 func IsRateLimitError(err error) bool {
