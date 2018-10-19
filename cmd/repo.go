@@ -86,18 +86,21 @@ func parseContributorsFetchResult(page int, call github2.ContributorsFetchResult
 	}
 }
 
-func fillRepoOwner(ctx context.Context, client *github.Client, repo *github.Repository) error {
+func getRepoOwner(ctx context.Context, client *github.Client, repo *github.Repository) (*github.User, error) {
+	if repo.Owner != nil {
+		return repo.Owner, nil
+	}
+
 	user, _, err := client.Users.Get(ctx, repo.Owner.GetLogin())
 	if err != nil {
 		if github2.IsRateLimitError(err) {
-			return errors.Wrapf(err, "reached rate limit while fetching user %s's data", repo.Owner.GetLogin())
+			return nil, errors.Wrapf(err, "reached rate limit while fetching user %s's data", repo.Owner.GetLogin())
 		} else {
-			return errors.Wrapf(err, "error while fetching user %s", repo.Owner.GetLogin())
+			return nil, errors.Wrapf(err, "error while fetching user %s", repo.Owner.GetLogin())
 		}
 	}
-	repo.Owner = user
 
-	return nil
+	return user, nil
 }
 
 func parseForksFetchResult(page int, call github2.ForksFetchResult) {
