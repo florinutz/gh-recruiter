@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/google/go-github/github"
 	"time"
@@ -29,8 +30,15 @@ func (f *fetcher) ParseContributors(ctx context.Context, perPage int, timeout ti
 
 	go pageGetter(1, resultsChan, 0)
 
-	firstPageResults := <-resultsChan
-	callback(1, firstPageResults)
+	var firstPageResults ContributorsFetchResult
+	select {
+	case firstPageResults = <-resultsChan:
+		callback(1, firstPageResults)
+	case <-time.After(timeout):
+		err := errors.New("timeout while fetching first page")
+		callback(1, ContributorsFetchResult{Err: err})
+		return err
+	}
 
 	totalPages := firstPageResults.Response.LastPage
 	if totalPages > 1 {

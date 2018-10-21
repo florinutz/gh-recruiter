@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/google/go-github/github"
 	"time"
@@ -30,8 +31,13 @@ func (f *fetcher) ParseStargazers(ctx context.Context, perPage int, timeout time
 
 	go pageGetter(1, resultsChan, 0)
 
-	firstPageResults := <-resultsChan
-	callback(1, firstPageResults)
+	var firstPageResults StargazersFetchResult
+	select {
+	case firstPageResults = <-resultsChan:
+		callback(1, firstPageResults)
+	case <-time.After(timeout):
+		callback(1, StargazersFetchResult{Err: errors.New("timeout while fetching first page")})
+	}
 
 	totalPages := firstPageResults.Response.LastPage
 	if totalPages > 1 {
@@ -45,7 +51,7 @@ func (f *fetcher) ParseStargazers(ctx context.Context, perPage int, timeout time
 		case call := <-resultsChan:
 			callback(page, call)
 		case <-time.After(timeout):
-			fmt.Println("timeout")
+			callback(page, StargazersFetchResult{Err: fmt.Errorf("timeout while fetching page %d", page)})
 		}
 	}
 

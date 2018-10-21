@@ -18,10 +18,7 @@ type ContributorsStatsFetchResult struct {
 func (f *fetcher) ParseContributorsStats(ctx context.Context, perPage int, timeout time.Duration,
 	callback ContributorsStatsCallback) error {
 	chunk, response, err := f.GetClient().Repositories.ListContributorsStats(ctx, f.GetOwner(), f.GetRepo())
-	if err != nil {
-		return err
-	}
 	callback(1, ContributorsStatsFetchResult{chunk, response, err})
 
-	return nil
+	return err
 }

@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"log"
 	"time"
 )
 
@@ -15,17 +16,17 @@ func (f *fetcher) GetFuncs(ctx context.Context,
 		func() {
 			f.ParseContributors(ctx, 10, 5*time.Second, cfr)
 		},
-		// func() {
-		// 	err := f.ParseContributorsStats(ctx, 10, 5*time.Second, csfr)
-		// 	if err != nil {
-		// 		log.Fatal(err)
-		// 	}
-		// },
-		// func() {
-		// 	f.ParseForks(ctx, 10, 5*time.Second, ffr)
-		// },
-		// func() {
-		// 	f.ParseStargazers(ctx, 10, 5*time.Second, sfr)
-		// },
+		func() {
+			err := f.ParseContributorsStats(ctx, 10, 5*time.Second, csfr)
+			if err != nil {
+				log.Fatal(err)
+			}
+		},
+		func() {
+			f.ParseForks(ctx, 10, 5*time.Second, ffr)
+		},
+		func() {
+			f.ParseStargazers(ctx, 10, 5*time.Second, sfr)
+		},
 	}
 }

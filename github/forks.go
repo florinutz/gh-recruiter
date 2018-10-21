@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/go-github/github"
+	"github.com/pkg/errors"
 	"time"
 )
 
@@ -29,8 +30,15 @@ func (f *fetcher) ParseForks(ctx context.Context, perPage int, timeout time.Dura
 
 	go pageGetter(1, resultsChan, 0)
 
-	firstPageResults := <-resultsChan
-	callback(1, firstPageResults)
+	var firstPageResults ForksFetchResult
+	select {
+	case firstPageResults = <-resultsChan:
+		callback(1, firstPageResults)
+	case <-time.After(timeout):
+		err := errors.New("timeout while fetching first page")
+		callback(1, ForksFetchResult{Err: err})
+		return err
+	}
 
 	totalPages := firstPageResults.Response.LastPage
 	if totalPages > 1 {

@@ -3,13 +3,16 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/birkelund/boltdbcache"
 	. "github.com/florinutz/gh-recruiter/github"
 	"github.com/google/go-github/github"
+	"github.com/gregjones/httpcache"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -33,6 +36,8 @@ func init() {
 	rootCmd.AddCommand(repoCmd)
 }
 
+const BucketName = "gh-recruiter"
+
 func RunRepo(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
@@ -48,11 +53,11 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	log.WithField("repo", r).Debug("found repo info")
 	fmt.Printf("Parsing repo %s\n\n", r.GetCloneURL())
 
-	cache := NewS3Cache(
-		"https://s3-eu-central-1.amazonaws.com/gh-recruiter",
-		os.Getenv("AWS_ACCESS_KEY_ID"),
-		os.Getenv("AWS_SECRET_KEY"),
-	)
+	cache, err := getCache(BucketName)
+	if err != nil {
+		log.Warnf("Running with no cache: %s\n", err)
+	}
+
 	fetcher := NewFetcher(client, args[0], args[1], cache)
 
 	var wg sync.WaitGroup
@@ -77,6 +82,16 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	// 	log.WithError(err).Errorln("problem searching users")
 	// }
 	// fmt.Printf("\n\nfound total %d users", searchResult.GetTotal())
+}
+
+func getCache(bucketName string) (cache httpcache.Cache, err error) {
+	if cacheDir, err := os.UserCacheDir(); err != nil {
+		return nil, err
+	} else if cache, err = boltdbcache.New(filepath.Join(cacheDir, bucketName)); err != nil {
+		return nil, err
+	}
+
+	return
 }
 
 func getRepoOwner(ctx context.Context, client *github.Client, repo *github.Repository) (*github.User, error) {
