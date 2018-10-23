@@ -3,6 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+
 	"github.com/birkelund/boltdbcache"
 	. "github.com/florinutz/gh-recruiter/github"
 	"github.com/google/go-github/github"
@@ -11,9 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
-	"os"
-	"path/filepath"
-	"sync"
 )
 
 // repoCmd represents the repo command
