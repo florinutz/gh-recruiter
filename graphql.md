@@ -1,6 +1,5 @@
-```
-{
-  repository(owner: "hashicorp", name: "hcl") {
+query crawlRepo($owner: String!, $repo: String!, $first: Int!, $maxStargazers: Int = 10, $maxForks: Int = 10, $maxPRs: Int = 10, $maxReleases: Int = 10, $userMaxOrgs: Int = 10, $userMaxPinnedRepos: Int = 10) {
+  repository(owner: $owner, name: $repo) {
     id
     description
     forkCount
@@ -9,15 +8,7 @@
     primaryLanguage {
       ...langFields
     }
-    languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
-      totalCount
-      edges {
-        node {
-          ...langFields
-        }
-      }
-    }
-    forks(first: 1, orderBy: {field: STARGAZERS, direction: DESC}) {
+    forks(first: $maxForks, orderBy: {field: STARGAZERS, direction: DESC}) {
       totalCount
       edges {
         node {
@@ -32,11 +23,11 @@
         }
       }
     }
-    pullRequests(first: 3, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pullRequests(first: $maxPRs, orderBy: {field: UPDATED_AT, direction: DESC}) {
       totalCount
       edges {
         node {
-          commits(first: 10) {
+          commits(first: $first) {
             edges {
               node {
                 commit {
@@ -56,7 +47,7 @@
               }
             }
           }
-          comments(first: 10) {
+          comments(first: $first) {
             edges {
               node {
                 author {
@@ -65,13 +56,32 @@
               }
             }
           }
-          reviews(first: 10) {
+          reviews(first: $first) {
             edges {
               node {
                 state
               }
             }
           }
+        }
+      }
+    }
+    releases(first: $maxReleases, orderBy: {field: CREATED_AT, direction: DESC}) {
+      totalCount
+      edges {
+        node {
+          author {
+            ...userFields
+          }
+        }
+      }
+    }
+    stargazers(first: $maxStargazers, orderBy: {field: STARRED_AT, direction: DESC}) {
+      totalCount
+      edges {
+        starredAt
+        node {
+          ...userFields
         }
       }
     }
@@ -106,7 +116,7 @@ fragment userFields on User {
   }
   login
   name
-  organizations(first: 15) {
+  organizations(first: $userMaxOrgs) {
     edges {
       node {
         id
@@ -118,7 +128,7 @@ fragment userFields on User {
       }
     }
   }
-  pinnedRepositories(first: 10) {
+  pinnedRepositories(first: $userMaxPinnedRepos) {
     edges {
       node {
         name
@@ -150,4 +160,9 @@ fragment userFields on User {
   }
 }
 
-```
+
+{
+  "owner": "hashicorp",
+  "repo": "hcl",
+  "first": 2
+}
