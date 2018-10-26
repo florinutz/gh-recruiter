@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 
 	"github.com/shurcooL/githubv4"
@@ -37,32 +38,68 @@ type LangFragment struct {
 	Name githubv4.String
 }
 
+type UserFragment struct {
+	Id        githubv4.ID
+	Bio       githubv4.String
+	Company   githubv4.String
+	CreatedAt githubv4.DateTime
+	Email     githubv4.String
+	Followers struct {
+		TotalCount githubv4.Int
+	}
+	Following struct {
+		TotalCount githubv4.Int
+	}
+	IsBountyHunter githubv4.Boolean
+	IsCampusExpert githubv4.Boolean
+	IsViewer       githubv4.Boolean
+	IsEmployee     githubv4.Boolean
+	IsHireable     githubv4.Boolean
+	Location       githubv4.String
+}
+
 func RunRepo2(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
-	client := githubv4.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token})))
-
-	var query struct {
-		Viewer struct {
-			Login     githubv4.String
-			CreatedAt githubv4.DateTime
-		}
-	}
-
-	err := client.Query(ctx, &query, nil)
-	if err != nil {
-		log.Fatalln(err)
-	}
+	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token}))
+	githubGraphQlClient := githubv4.NewClient(oauthClient)
 
 	var crawlRepoQuery struct {
 		Repository struct {
 			Id              githubv4.String
 			Url             githubv4.URI
 			Description     githubv4.String
-			ForkCount       githubv4.Int
 			HomepageUrl     githubv4.URI
 			NameWithOwner   githubv4.String
 			PrimaryLanguage LangFragment
+			Forks           struct {
+				TotalCount githubv4.Int
+				Nodes      []struct {
+					CreatedAt githubv4.Date
+					Owner     struct {
+						Id    githubv4.ID
+						Login githubv4.String
+						Url   githubv4.URI
+					}
+				}
+			} `graphql:"forks(first: $forksPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
+			PullRequests struct {
+				TotalCount githubv4.Int
+				Nodes      []struct {
+					Commits []struct {
+						TotalCount githubv4.Int
+						Nodes      []struct {
+							Commit struct {
+								Author []struct {
+									User []struct {
+										Bio githubv4.String
+									}
+								}
+							}
+						}
+					} `graphql:"commits(first: $prCommitsPerBatch)"`
+				}
+			} `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
 		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
 		RateLimit struct {
 			Cost      githubv4.Int
@@ -73,11 +110,14 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 	}
 
 	variables := map[string]interface{}{
-		"repositoryOwner": githubv4.String(args[0]),
-		"repositoryName":  githubv4.String(args[1]),
+		"repositoryOwner":   githubv4.String(args[0]),
+		"repositoryName":    githubv4.String(args[1]),
+		"forksPerBatch":     githubv4.Int(3),
+		"prsPerBatch":       githubv4.Int(3),
+		"prCommitsPerBatch": githubv4.Int(3),
 	}
 
-	err = client.Query(ctx, &crawlRepoQuery, variables)
+	err := githubGraphQlClient.Query(ctx, &crawlRepoQuery, variables)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -86,10 +126,13 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 
 // printJSON prints v as JSON encoded with indent to stdout. It panics on any error.
 func printJSON(v interface{}) {
+	if v == nil {
+		log.WithError(errors.New("nil value for json")).Fatal()
+	}
 	w := json.NewEncoder(os.Stdout)
 	w.SetIndent("", "\t")
 	err := w.Encode(v)
 	if err != nil {
-		panic(err)
+		log.WithError(err).Fatal()
 	}
 }
