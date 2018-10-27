@@ -70,7 +70,7 @@ type PRs struct {
 					Author    struct {
 						User UserFragment
 					}
-					AuthoredDate githubv4.Date
+					AuthoredDate githubv4.DateTime
 					Status       struct {
 						State githubv4.StatusState
 					}
@@ -83,8 +83,21 @@ type PRs struct {
 				Author struct {
 					Login githubv4.String
 				}
+				LastEditedAt githubv4.DateTime
+				Url          githubv4.URI
 			}
 		} `graphql:"comments(first: $prCommentsPerBatch)"`
+		Reviews struct {
+			TotalCount githubv4.Int
+			Nodes      []struct {
+				Author struct {
+					Login githubv4.String
+				}
+				LastEditedAt githubv4.DateTime
+				Url          githubv4.URI
+				State        githubv4.PullRequestReviewState
+			}
+		} `graphql:"reviews(first: $prReviewsPerBatch)"`
 	}
 }
 
@@ -105,7 +118,7 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 			Forks           struct {
 				TotalCount githubv4.Int
 				Nodes      []struct {
-					CreatedAt githubv4.Date
+					CreatedAt githubv4.DateTime
 					Owner     struct {
 						Id    githubv4.ID
 						Login githubv4.String
@@ -114,6 +127,19 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 				}
 			} `graphql:"forks(first: $forksPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
 			PullRequests PRs `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+			Releases     struct {
+				TotalCount githubv4.Int
+				Nodes      []struct {
+					Author UserFragment
+				}
+			} `graphql:"releases(first: $releasesPerBatch, orderBy: {field: CREATED_AT, direction: DESC})"`
+			Stargazers struct {
+				TotalCount githubv4.Int
+				Edges      []struct {
+					StarredAt githubv4.DateTime
+					Node      UserFragment
+				}
+			} `graphql:"stargazers(first: $stargazersPerBatch, orderBy: {field: STARRED_AT, direction: DESC})"`
 		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
 		RateLimit struct {
 			Cost      githubv4.Int
@@ -126,10 +152,13 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 	variables := map[string]interface{}{
 		"repositoryOwner":    githubv4.String(args[0]),
 		"repositoryName":     githubv4.String(args[1]),
-		"forksPerBatch":      githubv4.Int(3),
-		"prsPerBatch":        githubv4.Int(3),
-		"prCommitsPerBatch":  githubv4.Int(3),
-		"prCommentsPerBatch": githubv4.Int(3),
+		"forksPerBatch":      githubv4.Int(1),
+		"prsPerBatch":        githubv4.Int(1),
+		"prCommitsPerBatch":  githubv4.Int(1),
+		"prCommentsPerBatch": githubv4.Int(1),
+		"prReviewsPerBatch":  githubv4.Int(1),
+		"releasesPerBatch":   githubv4.Int(1),
+		"stargazersPerBatch": githubv4.Int(1),
 	}
 
 	err := githubGraphQlClient.Query(ctx, &crawlRepoQuery, variables)
