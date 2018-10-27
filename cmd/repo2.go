@@ -58,6 +58,36 @@ type UserFragment struct {
 	Location       githubv4.String
 }
 
+type PRs struct {
+	TotalCount githubv4.Int
+	Nodes      []struct {
+		Commits struct {
+			TotalCount githubv4.Int
+			Nodes      []struct {
+				Commit struct {
+					Additions githubv4.Int
+					Deletions githubv4.Int
+					Author    struct {
+						User UserFragment
+					}
+					AuthoredDate githubv4.Date
+					Status       struct {
+						State githubv4.StatusState
+					}
+				}
+			}
+		} `graphql:"commits(first: $prCommitsPerBatch)"`
+		Comments struct {
+			TotalCount githubv4.Int
+			Nodes      []struct {
+				Author struct {
+					Login githubv4.String
+				}
+			}
+		} `graphql:"comments(first: $prCommentsPerBatch)"`
+	}
+}
+
 func RunRepo2(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
@@ -83,23 +113,7 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 					}
 				}
 			} `graphql:"forks(first: $forksPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
-			PullRequests struct {
-				TotalCount githubv4.Int
-				Nodes      []struct {
-					Commits []struct {
-						TotalCount githubv4.Int
-						Nodes      []struct {
-							Commit struct {
-								Author []struct {
-									User []struct {
-										Bio githubv4.String
-									}
-								}
-							}
-						}
-					} `graphql:"commits(first: $prCommitsPerBatch)"`
-				}
-			} `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+			PullRequests PRs `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
 		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
 		RateLimit struct {
 			Cost      githubv4.Int
@@ -110,11 +124,12 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 	}
 
 	variables := map[string]interface{}{
-		"repositoryOwner":   githubv4.String(args[0]),
-		"repositoryName":    githubv4.String(args[1]),
-		"forksPerBatch":     githubv4.Int(3),
-		"prsPerBatch":       githubv4.Int(3),
-		"prCommitsPerBatch": githubv4.Int(3),
+		"repositoryOwner":    githubv4.String(args[0]),
+		"repositoryName":     githubv4.String(args[1]),
+		"forksPerBatch":      githubv4.Int(3),
+		"prsPerBatch":        githubv4.Int(3),
+		"prCommitsPerBatch":  githubv4.Int(3),
+		"prCommentsPerBatch": githubv4.Int(3),
 	}
 
 	err := githubGraphQlClient.Query(ctx, &crawlRepoQuery, variables)
