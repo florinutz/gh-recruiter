@@ -2,6 +2,19 @@ package cmd
 
 import "github.com/shurcooL/githubv4"
 
+type Repository struct {
+	Id              *githubv4.String
+	Url             *githubv4.URI
+	Description     *githubv4.String
+	HomepageUrl     *githubv4.URI
+	NameWithOwner   *githubv4.String
+	PrimaryLanguage LangFragment
+	Forks           Forks      `graphql:"forks(first: $forksPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
+	PullRequests    PRs        `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+	Releases        Releases   `graphql:"releases(first: $releasesPerBatch, orderBy: {field: CREATED_AT, direction: DESC})"`
+	Stargazers      Stargazers `graphql:"stargazers(first: $stargazersPerBatch, orderBy: {field: STARRED_AT, direction: DESC})"`
+}
+
 type LangFragment struct {
 	Id   *githubv4.ID
 	Name *githubv4.String
@@ -110,4 +123,9 @@ type RateLimit struct {
 	Limit     *githubv4.Int
 	Remaining *githubv4.Int
 	ResetAt   *githubv4.DateTime
+}
+
+type QueryRepo struct {
+	Repository Repository `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+	RateLimit  RateLimit
 }
