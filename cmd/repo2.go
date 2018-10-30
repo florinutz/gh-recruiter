@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
+	"strings"
 
 	"github.com/shurcooL/githubv4"
 
@@ -44,23 +44,33 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token}))
 	githubGraphQlClient := githubv4.NewClient(oauthClient)
 
-	variables := map[string]interface{}{
-		"repositoryOwner":    githubv4.String(args[0]),
-		"repositoryName":     githubv4.String(args[1]),
-		"forksPerBatch":      githubv4.Int(0),
-		"prsPerBatch":        githubv4.Int(0),
-		"prCommitsPerBatch":  githubv4.Int(0),
-		"prCommentsPerBatch": githubv4.Int(0),
-		"prReviewsPerBatch":  githubv4.Int(0),
-		"releasesPerBatch":   githubv4.Int(0),
-		"stargazersPerBatch": githubv4.Int(0),
-	}
+	// variables := map[string]interface{}{
+	// 	"repositoryOwner":    githubv4.String(args[0]),
+	// 	"repositoryName":     githubv4.String(args[1]),
+	// 	"forksPerBatch":      githubv4.Int(0),
+	// 	"prsPerBatch":        githubv4.Int(0),
+	// 	"prCommitsPerBatch":  githubv4.Int(0),
+	// 	"prCommentsPerBatch": githubv4.Int(0),
+	// 	"prReviewsPerBatch":  githubv4.Int(0),
+	// 	"releasesPerBatch":   githubv4.Int(0),
+	// 	"stargazersPerBatch": githubv4.Int(0),
+	// }
+	// err := githubGraphQlClient.Query(ctx, &repo, variables)
+	// if err != nil {
+	// 	log.Fatalln(err)
+	// }
+	//printJSON(repo)
 
-	err := githubGraphQlClient.Query(ctx, &repo, variables)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	printJSON(repo)
+	fetchForkers(
+		func(logins []string) {
+			fmt.Printf("Forkers:\n%s\n\n", strings.Join(logins, ", "))
+		},
+		githubGraphQlClient,
+		ctx,
+		args[0],
+		args[1],
+		100,
+	)
 }
 
 // printJSON prints v as JSON encoded with indent to stdout. It panics on any error.
@@ -76,71 +86,108 @@ func printJSON(v interface{}) {
 	}
 }
 
-type ForksFetchResult struct {
-	ForkOwners []string
-	Err        error
+type PageInfo struct {
+	EndCursor   githubv4.String
+	HasNextPage githubv4.Boolean
 }
 
-type ForksCallback func(page int, call ForksFetchResult)
+func fetchForkers(
+	callback func(logins []string),
+	client *githubv4.Client,
+	ctx context.Context,
+	repoOwner, repoName string,
+	pageSize int) {
 
-func fetchForkers(client *githubv4.Client, ctx context.Context, repoOwner, repoName string, numberOfPages, pageSize int,
-	callback ForksCallback, timeout time.Duration) {
-	type QueryForForkers struct {
-		Repository struct {
-			Forks struct {
-				Nodes []struct {
-					Owner struct {
-						Login string
-					}
-				}
-			} `graphql:"forks(first: $forksPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
-		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
-		RateLimit RateLimit
+	data, err := forksGetter(ctx, client, repoOwner, repoName, "", pageSize)
+	if err != nil {
+		log.WithError(err).Fatal()
+	}
+	callback(data)
+}
+
+type ForkNodes []struct {
+	Owner struct {
+		Login string
+	}
+}
+
+// todo filter these by location
+func forksGetter(
+	ctx context.Context,
+	client *githubv4.Client,
+	repoOwner string,
+	repoName string,
+	after string,
+	pageSize int,
+) (results []string, err error) {
+	var (
+		nodes       ForkNodes
+		hasNextPage bool
+		endCursor   string
+	)
+
+	variables := map[string]interface{}{
+		"repositoryOwner": githubv4.String(repoOwner),
+		"repositoryName":  githubv4.String(repoName),
+		"itemsPerBatch":   githubv4.Int(pageSize),
 	}
 
-	pageGetter := func(
-		client *githubv4.Client,
-		ctx context.Context,
-		repoOwner, repoName string, out chan<- ForksFetchResult, page, totalPages, pageSize int) {
-		var q QueryForForkers
+	if after == "" {
+		var q struct {
+			Repository struct {
+				Forks struct {
+					PageInfo PageInfo
+					Nodes    ForkNodes
+				} `graphql:"forks(first: $itemsPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
+			} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+			RateLimit RateLimit
+		}
+
+		err = client.Query(ctx, &q, variables)
+		if err != nil {
+			return
+		}
+		nodes = q.Repository.Forks.Nodes
+		hasNextPage = bool(q.Repository.Forks.PageInfo.HasNextPage)
+		endCursor = string(q.Repository.Forks.PageInfo.EndCursor)
+	} else {
+		var q struct {
+			Repository struct {
+				Forks struct {
+					PageInfo PageInfo
+					Nodes    ForkNodes
+				} `graphql:"forks(first: $itemsPerBatch, after: $after, orderBy: {field: STARGAZERS, direction: DESC})"`
+			} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+			RateLimit RateLimit
+		}
 
 		variables := map[string]interface{}{
 			"repositoryOwner": githubv4.String(repoOwner),
 			"repositoryName":  githubv4.String(repoName),
-			"forksPerBatch":   githubv4.Int(pageSize),
+			"itemsPerBatch":   githubv4.Int(pageSize),
+			"after":           githubv4.String(after),
 		}
 
-		err := client.Query(ctx, &q, variables)
+		err = client.Query(ctx, &q, variables)
 		if err != nil {
-			out <- ForksFetchResult{nil, err}
+			return
 		}
-
-		var logins []string
-		for _, owner := range q.Repository.Forks.Nodes {
-			logins = append(logins, owner.Owner.Login)
-		}
-
-		out <- ForksFetchResult{logins, err}
-
-		if totalPages != 0 && totalPages == len(out) {
-			close(out)
-		}
+		nodes = q.Repository.Forks.Nodes
+		hasNextPage = bool(q.Repository.Forks.PageInfo.HasNextPage)
+		endCursor = string(q.Repository.Forks.PageInfo.EndCursor)
 	}
 
-	resultsChan := make(chan ForksFetchResult)
-
-	if numberOfPages > 1 {
-		for page := 1; page <= numberOfPages; page++ {
-			go pageGetter(client, ctx, repoOwner, repoName, resultsChan, page, numberOfPages, pageSize)
-		}
+	for _, owner := range nodes {
+		results = append(results, owner.Owner.Login)
 	}
 
-	for page := 0; page <= numberOfPages; page++ {
-		select {
-		case data := <-resultsChan:
-			callback(page, data)
-		case <-time.After(timeout):
-			fmt.Println("timeout")
+	if hasNextPage {
+		data, err := forksGetter(ctx, client, repoOwner, repoName, endCursor, pageSize)
+		if err != nil {
+			return results, err
 		}
+		results = append(results, data...)
 	}
+
+	return
 }
