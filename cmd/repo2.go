@@ -98,7 +98,7 @@ func fetchForkers(
 	repoOwner, repoName string,
 	pageSize int) {
 
-	data, err := forksGetter(ctx, client, repoOwner, repoName, "", pageSize)
+	data, err := getForkers(ctx, client, repoOwner, repoName, "", pageSize)
 	if err != nil {
 		log.WithError(err).Fatal()
 	}
@@ -111,8 +111,44 @@ type ForkNodes []struct {
 	}
 }
 
+func getPRCommenters(
+	ctx context.Context,
+	client *githubv4.Client,
+	repoOwner string,
+	repoName string,
+) (results []PRComment, err error) {
+	variables := map[string]interface{}{
+		"repositoryOwner":    githubv4.String(repoOwner),
+		"repositoryName":     githubv4.String(repoName),
+		"$prsPerBatch":       githubv4.Int(100),
+		"prCommentsPerBatch": githubv4.Int(100),
+	}
+	var q struct {
+		Repository struct {
+			PullRequests []struct {
+				Comments struct {
+					PageInfo PageInfo
+					Nodes    []PRComment
+				} `graphql:"comments(first: $prCommentsPerBatch)"`
+			} `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+		RateLimit RateLimit
+	}
+
+	err = client.Query(ctx, &q, variables)
+	if err != nil {
+		return
+	}
+
+	for _, pr := range q.Repository.PullRequests {
+		results = append(results, pr.Comments.Nodes...)
+	}
+
+	return
+}
+
 // todo filter these by location
-func forksGetter(
+func getForkers(
 	ctx context.Context,
 	client *githubv4.Client,
 	repoOwner string,
@@ -182,7 +218,7 @@ func forksGetter(
 	}
 
 	if hasNextPage {
-		data, err := forksGetter(ctx, client, repoOwner, repoName, endCursor, pageSize)
+		data, err := getForkers(ctx, client, repoOwner, repoName, endCursor, pageSize)
 		if err != nil {
 			return results, err
 		}

@@ -73,22 +73,22 @@ type PRCommit struct {
 
 type PR struct {
 	Commits struct {
-		TotalCount *githubv4.Int
-		Nodes      []PRCommit
+		PageInfo PageInfo
+		Nodes    []PRCommit
 	} `graphql:"commits(first: $prCommitsPerBatch)"`
 	Comments struct {
-		TotalCount *githubv4.Int
-		Nodes      []PRComment
+		PageInfo PageInfo
+		Nodes    []PRComment
 	} `graphql:"comments(first: $prCommentsPerBatch)"`
 	Reviews struct {
-		TotalCount *githubv4.Int
-		Nodes      []PRReview
+		PageInfo PageInfo
+		Nodes    []PRReview
 	} `graphql:"reviews(first: $prReviewsPerBatch)"`
 }
 
 type PRs struct {
-	TotalCount *githubv4.Int
-	Nodes      []PR
+	PageInfo PageInfo
+	Nodes    []PR
 }
 
 type Releases struct {
