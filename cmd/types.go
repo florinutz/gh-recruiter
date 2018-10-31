@@ -42,32 +42,32 @@ type UserFragment struct {
 
 type PRReview struct {
 	Author struct {
-		Login *githubv4.String
+		Login githubv4.String
 	}
-	LastEditedAt *githubv4.DateTime
-	Url          *githubv4.URI
-	State        *githubv4.PullRequestReviewState
+	LastEditedAt githubv4.DateTime
+	Url          githubv4.URI
 }
 
 type PRComment struct {
 	Author struct {
-		Login *githubv4.String
+		Login githubv4.String
 	}
-	LastEditedAt *githubv4.DateTime
-	Url          *githubv4.URI
+	LastEditedAt githubv4.DateTime
+	Url          githubv4.URI
 }
 
 type PRCommit struct {
 	Commit struct {
-		Additions *githubv4.Int
-		Deletions *githubv4.Int
+		Additions githubv4.Int
+		Deletions githubv4.Int
 		Author    struct {
 			User UserFragment
 		}
-		AuthoredDate *githubv4.DateTime
+		AuthoredDate githubv4.DateTime
 		Status       struct {
-			State *githubv4.StatusState
+			State githubv4.StatusState
 		}
+		Url githubv4.URI
 	}
 }
 

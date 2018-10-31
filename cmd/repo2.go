@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/shurcooL/githubv4"
 
@@ -61,16 +60,47 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 	// }
 	//printJSON(repo)
 
-	fetchForkers(
-		func(logins []string) {
-			fmt.Printf("Forkers:\n%s\n\n", strings.Join(logins, ", "))
-		},
-		githubGraphQlClient,
-		ctx,
-		args[0],
-		args[1],
-		100,
-	)
+	// fetchForkers(
+	// 	func(logins []string) {
+	// 		fmt.Printf("Forkers:\n%s\n\n", strings.Join(logins, ", "))
+	// 	},
+	// 	githubGraphQlClient,
+	// 	ctx,
+	// 	args[0],
+	// 	args[1],
+	// 	100,
+	// )
+
+	prs, err := getPRs(ctx, githubGraphQlClient, args[0], args[1], "")
+	if err != nil {
+		log.WithError(err).Fatal()
+	}
+
+	for _, pr := range prs {
+		fmt.Printf("\n\nPR %s (%s):\n", pr.Title, pr.Url)
+		commentsCount := len(pr.Comments.Nodes)
+		if commentsCount > 0 {
+			fmt.Printf("\n%d comments:\n", commentsCount)
+			for _, comment := range pr.Comments.Nodes {
+				fmt.Printf("%s (%s):\n", comment.Author.Login, comment.Url.String())
+			}
+		}
+		reviewsCount := len(pr.Reviews.Nodes)
+		if reviewsCount > 0 {
+			fmt.Printf("\n%d reviews:\n", reviewsCount)
+			for _, review := range pr.Reviews.Nodes {
+				fmt.Printf("%s (%s):\n", review.Author.Login, review.Url.String())
+			}
+		}
+		commitsCount := len(pr.Commits.Nodes)
+		if commitsCount > 0 {
+			fmt.Printf("\n%d commits:\n", commitsCount)
+			for _, commit := range pr.Commits.Nodes {
+				fmt.Printf("%s (%d additions, %d deletions, url %s):\n",
+					commit.Commit.Author.User.Id, commit.Commit.Additions, commit.Commit.Url)
+			}
+		}
+	}
 }
 
 // printJSON prints v as JSON encoded with indent to stdout. It panics on any error.
@@ -111,37 +141,90 @@ type ForkNodes []struct {
 	}
 }
 
-func getPRCommenters(
+type PRWithData struct {
+	Url      githubv4.URI
+	Title    githubv4.String
+	Comments struct {
+		Nodes []PRComment
+	} `graphql:"comments(first: $prItemsPerBatch)"`
+	Reviews struct {
+		Nodes []PRReview
+	} `graphql:"comments(first: $prItemsPerBatch)"`
+	Commits struct {
+		Nodes []PRCommit
+	} `graphql:"commits(first: $prCommitsPerBatch)"`
+}
+
+func getPRs(
 	ctx context.Context,
 	client *githubv4.Client,
 	repoOwner string,
 	repoName string,
-) (results []PRComment, err error) {
+	after string,
+) (results []PRWithData, err error) {
+	var (
+		nodes       []PRWithData
+		hasNextPage bool
+		endCursor   string
+	)
+
 	variables := map[string]interface{}{
-		"repositoryOwner":    githubv4.String(repoOwner),
-		"repositoryName":     githubv4.String(repoName),
-		"$prsPerBatch":       githubv4.Int(100),
-		"prCommentsPerBatch": githubv4.Int(100),
+		"repositoryOwner":   githubv4.String(repoOwner),
+		"repositoryName":    githubv4.String(repoName),
+		"prsPerBatch":       githubv4.Int(100),
+		"prItemsPerBatch":   githubv4.Int(100),
+		"prCommitsPerBatch": githubv4.Int(5), // a safe value so that we don't request too much data
 	}
-	var q struct {
-		Repository struct {
-			PullRequests []struct {
-				Comments struct {
+
+	if after != "" {
+		var q struct {
+			Repository struct {
+				PullRequests struct {
 					PageInfo PageInfo
-					Nodes    []PRComment
-				} `graphql:"comments(first: $prCommentsPerBatch)"`
-			} `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
-		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
-		RateLimit RateLimit
+					Nodes    []PRWithData
+				} `graphql:"pullRequests(after: $after, first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+			} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+			RateLimit RateLimit
+		}
+		variables["after"] = githubv4.String(after)
+
+		err = client.Query(ctx, &q, variables)
+		if err != nil {
+			return
+		}
+
+		nodes = q.Repository.PullRequests.Nodes
+		hasNextPage = bool(q.Repository.PullRequests.PageInfo.HasNextPage)
+		endCursor = string(q.Repository.PullRequests.PageInfo.EndCursor)
+	} else {
+		var q struct {
+			Repository struct {
+				PullRequests struct {
+					PageInfo PageInfo
+					Nodes    []PRWithData
+				} `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+			} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+			RateLimit RateLimit
+		}
+
+		err = client.Query(ctx, &q, variables)
+		if err != nil {
+			return
+		}
+
+		nodes = q.Repository.PullRequests.Nodes
+		hasNextPage = bool(q.Repository.PullRequests.PageInfo.HasNextPage)
+		endCursor = string(q.Repository.PullRequests.PageInfo.EndCursor)
 	}
 
-	err = client.Query(ctx, &q, variables)
-	if err != nil {
-		return
-	}
+	results = append(results, nodes...)
 
-	for _, pr := range q.Repository.PullRequests {
-		results = append(results, pr.Comments.Nodes...)
+	if hasNextPage {
+		data, err := getPRs(ctx, client, repoOwner, repoName, endCursor)
+		if err != nil {
+			return results, err
+		}
+		results = append(results, data...)
 	}
 
 	return
