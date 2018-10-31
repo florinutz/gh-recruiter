@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
+	"time"
 
 	"github.com/shurcooL/githubv4"
 
@@ -60,47 +62,91 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 	// }
 	//printJSON(repo)
 
-	// fetchForkers(
-	// 	func(logins []string) {
-	// 		fmt.Printf("Forkers:\n%s\n\n", strings.Join(logins, ", "))
-	// 	},
-	// 	githubGraphQlClient,
-	// 	ctx,
-	// 	args[0],
-	// 	args[1],
-	// 	100,
-	// )
+	// forkerLogins, err := getForkers(ctx, githubGraphQlClient, args[0], args[1], "", 100)
+	// if err != nil {
+	// 	log.WithError(err).Fatal()
+	// }
+	logins := []string{"florinutz", "nocive"}
+	out := getUsersByLogins(logins, ctx, githubGraphQlClient, 5*time.Second)
 
-	prs, err := getPRs(ctx, githubGraphQlClient, args[0], args[1], "")
+	for i := 0; i < len(logins); i++ {
+		select {
+		case userFetch := <-out:
+			fmt.Printf("%s: %s\n", userFetch.Login, userFetch.User.Bio)
+		case <-time.After(10 * time.Second):
+			fmt.Println("timeout")
+		}
+	}
+
+	// prs, err := getPRs(ctx, githubGraphQlClient, args[0], args[1], "")
+	// if err != nil {
+	// 	log.WithError(err).Fatal()
+	// }
+	//
+	// for _, pr := range prs {
+	// 	fmt.Printf("\n\nPR %s (%s):\n", pr.Title, pr.Url)
+	// 	commentsCount := len(pr.Comments.Nodes)
+	// 	if commentsCount > 0 {
+	// 		fmt.Printf("\n%d comments:\n", commentsCount)
+	// 		for _, comment := range pr.Comments.Nodes {
+	// 			fmt.Printf("%s (%s):\n", comment.Author.Login, comment.Url.String())
+	// 		}
+	// 	}
+	// 	reviewsCount := len(pr.Reviews.Nodes)
+	// 	if reviewsCount > 0 {
+	// 		fmt.Printf("\n%d reviews:\n", reviewsCount)
+	// 		for _, review := range pr.Reviews.Nodes {
+	// 			fmt.Printf("%s (%s):\n", review.Author.Login, review.Url.String())
+	// 		}
+	// 	}
+	// 	commitsCount := len(pr.Commits.Nodes)
+	// 	if commitsCount > 0 {
+	// 		fmt.Printf("\n%d commits:\n", commitsCount)
+	// 		for _, commit := range pr.Commits.Nodes {
+	// 			fmt.Printf("%s (%d additions, %d deletions, url %s):\n",
+	// 				commit.Commit.Author.User.Id, commit.Commit.Additions, commit.Commit.Url)
+	// 		}
+	// 	}
+	// }
+}
+
+func getUsersByLogins(logins []string, ctx context.Context, client *githubv4.Client, timeout time.Duration) chan UserFetchResult {
+	out := make(chan UserFetchResult)
+	sent := 0
+	for _, login := range logins {
+		duration := time.Duration(rand.Intn(len(logins))) * time.Second // about 1 per second but randomly
+		go func(login string, wait time.Duration) {
+			time.Sleep(wait)
+
+			user, err := getUser(login, ctx, client)
+
+			out <- UserFetchResult{login, user, err}
+			sent++
+			if sent == len(logins) {
+				close(out)
+			}
+		}(login, duration)
+	}
+	return out
+}
+
+type UserFetchResult struct {
+	Login string
+	User  UserFragment
+	Err   error
+}
+
+func getUser(login string, ctx context.Context, client *githubv4.Client) (UserFragment, error) {
+	var q struct {
+		User      UserFragment `graphql:"user(login:$login)"`
+		RateLimit RateLimit
+	}
+	err := client.Query(ctx, &q, map[string]interface{}{"login": githubv4.String(login), "maxOrgs": githubv4.Int(2)})
 	if err != nil {
-		log.WithError(err).Fatal()
+		return UserFragment{}, err
 	}
 
-	for _, pr := range prs {
-		fmt.Printf("\n\nPR %s (%s):\n", pr.Title, pr.Url)
-		commentsCount := len(pr.Comments.Nodes)
-		if commentsCount > 0 {
-			fmt.Printf("\n%d comments:\n", commentsCount)
-			for _, comment := range pr.Comments.Nodes {
-				fmt.Printf("%s (%s):\n", comment.Author.Login, comment.Url.String())
-			}
-		}
-		reviewsCount := len(pr.Reviews.Nodes)
-		if reviewsCount > 0 {
-			fmt.Printf("\n%d reviews:\n", reviewsCount)
-			for _, review := range pr.Reviews.Nodes {
-				fmt.Printf("%s (%s):\n", review.Author.Login, review.Url.String())
-			}
-		}
-		commitsCount := len(pr.Commits.Nodes)
-		if commitsCount > 0 {
-			fmt.Printf("\n%d commits:\n", commitsCount)
-			for _, commit := range pr.Commits.Nodes {
-				fmt.Printf("%s (%d additions, %d deletions, url %s):\n",
-					commit.Commit.Author.User.Id, commit.Commit.Additions, commit.Commit.Url)
-			}
-		}
-	}
+	return q.User, nil
 }
 
 // printJSON prints v as JSON encoded with indent to stdout. It panics on any error.
@@ -119,20 +165,6 @@ func printJSON(v interface{}) {
 type PageInfo struct {
 	EndCursor   githubv4.String
 	HasNextPage githubv4.Boolean
-}
-
-func fetchForkers(
-	callback func(logins []string),
-	client *githubv4.Client,
-	ctx context.Context,
-	repoOwner, repoName string,
-	pageSize int) {
-
-	data, err := getForkers(ctx, client, repoOwner, repoName, "", pageSize)
-	if err != nil {
-		log.WithError(err).Fatal()
-	}
-	callback(data)
 }
 
 type ForkNodes []struct {

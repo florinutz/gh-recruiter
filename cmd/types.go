@@ -21,23 +21,35 @@ type LangFragment struct {
 }
 
 type UserFragment struct {
-	Id        *githubv4.ID
-	Bio       *githubv4.String
-	Company   *githubv4.String
-	CreatedAt *githubv4.DateTime
-	Email     *githubv4.String
+	Id        githubv4.ID
+	Bio       githubv4.String
+	Company   githubv4.String
+	Email     githubv4.String
+	Location  githubv4.String
+	Login     githubv4.String
+	Name      githubv4.String
+	CreatedAt githubv4.DateTime
 	Followers struct {
-		TotalCount *githubv4.Int
+		TotalCount githubv4.Int
 	}
 	Following struct {
-		TotalCount *githubv4.Int
+		TotalCount githubv4.Int
 	}
-	IsBountyHunter *githubv4.Boolean
-	IsCampusExpert *githubv4.Boolean
-	IsViewer       *githubv4.Boolean
-	IsEmployee     *githubv4.Boolean
-	IsHireable     *githubv4.Boolean
-	Location       *githubv4.String
+	Organizations struct {
+		TotalCount githubv4.Int
+		Nodes      []struct {
+			Id          githubv4.ID
+			Login       githubv4.String
+			Email       *githubv4.String
+			WebsiteUrl  *githubv4.URI
+			Description githubv4.String
+		}
+	} `graphql:"organizations(first: $maxOrgs)"`
+	IsBountyHunter githubv4.Boolean
+	IsCampusExpert githubv4.Boolean
+	IsViewer       githubv4.Boolean
+	IsEmployee     githubv4.Boolean
+	IsHireable     githubv4.Boolean
 }
 
 type PRReview struct {
