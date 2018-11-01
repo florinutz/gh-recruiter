@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/shurcooL/githubv4"
@@ -24,17 +26,24 @@ var (
 		Run:   RunRepo2,
 		Args:  cobra.ExactArgs(2),
 	}
-	repo QueryRepo
+	CsvWriterPRReviewers *csv.Writer
+	CsvWriterPRCommiters *csv.Writer
 )
 
 var repo2Config struct {
-	location string
-	csv      bool
+	csv     string
+	verbose bool
+
+	withForkers bool
+	withPRs     bool
 }
 
 func init() {
-	repo2Cmd.Flags().StringVarP(&repo2Config.location, "location", "l", "", "location filter")
-	repo2Cmd.Flags().BoolVarP(&repo2Config.csv, "csv", "c", false, "csv output")
+	repo2Cmd.Flags().StringVarP(&repo2Config.csv, "output", "o", "", "csv output file")
+	repo2Cmd.Flags().BoolVarP(&repo2Config.verbose, "verbose", "v", false, "verbose?")
+	repo2Cmd.Flags().BoolVarP(&repo2Config.withForkers, "forkers", "f", false, "fetch forkers?")
+	repo2Cmd.Flags().BoolVarP(&repo2Config.withPRs, "prs", "p", false,
+		"fetch users involved in PRs?")
 
 	rootCmd.AddCommand(repo2Cmd)
 }
@@ -43,71 +52,178 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token}))
-	githubGraphQlClient := githubv4.NewClient(oauthClient)
+	ghClient := githubv4.NewClient(oauthClient)
 
-	// variables := map[string]interface{}{
-	// 	"repositoryOwner":    githubv4.String(args[0]),
-	// 	"repositoryName":     githubv4.String(args[1]),
-	// 	"forksPerBatch":      githubv4.Int(0),
-	// 	"prsPerBatch":        githubv4.Int(0),
-	// 	"prCommitsPerBatch":  githubv4.Int(0),
-	// 	"prCommentsPerBatch": githubv4.Int(0),
-	// 	"prReviewsPerBatch":  githubv4.Int(0),
-	// 	"releasesPerBatch":   githubv4.Int(0),
-	// 	"stargazersPerBatch": githubv4.Int(0),
-	// }
-	// err := githubGraphQlClient.Query(ctx, &repo, variables)
-	// if err != nil {
-	// 	log.Fatalln(err)
-	// }
-	//printJSON(repo)
+	if repo2Config.withForkers {
+		logins, err := getForkers(ctx, ghClient, args[0], args[1], "", 100)
+		if err != nil {
+			log.WithError(err).Fatal()
+		}
 
-	// forkerLogins, err := getForkers(ctx, githubGraphQlClient, args[0], args[1], "", 100)
-	// if err != nil {
-	// 	log.WithError(err).Fatal()
-	// }
-	logins := []string{"florinutz", "nocive"}
-	out := getUsersByLogins(logins, ctx, githubGraphQlClient, 5*time.Second)
+		var writer *csv.Writer
+		if repo2Config.csv != "" {
+			path := fmt.Sprintf("%s_%s-%s_forkers.csv", repo2Config.csv, args[0], args[1])
+			writer = MustInitCsv(path, true)
+		}
+		GetUsersByLogins(logins, ctx, ghClient, writer, userFetchedCallback)
+	}
+
+	if repo2Config.withPRs {
+		prs, err := getPRs(ctx, ghClient, args[0], args[1], "")
+		if err != nil {
+			log.WithError(err).Fatal()
+		}
+
+		// need to harvest these
+		var (
+			commenterLogins []string
+			reviewerLogins  []string
+		)
+		for _, pr := range prs {
+			fmt.Printf("\n\nPR %s (%s):\n", pr.Title, pr.Url)
+
+			commentsCount := len(pr.Comments.Nodes)
+			if commentsCount > 0 {
+				fmt.Printf("\n%d comments:\n", commentsCount)
+				for _, comment := range pr.Comments.Nodes {
+					fmt.Printf("%s (%s):\n", comment.Author.Login, comment.Url.String())
+					commenterLogins = append(commenterLogins, string(comment.Author.Login))
+				}
+			}
+
+			reviewsCount := len(pr.Reviews.Nodes)
+			if reviewsCount > 0 {
+				fmt.Printf("\n%d reviews:\n", reviewsCount)
+				for _, review := range pr.Reviews.Nodes {
+					fmt.Printf("%s (%s):\n", review.Author.Login, review.Url.String())
+					reviewerLogins = append(reviewerLogins, string(review.Author.Login))
+				}
+			}
+
+			commitsCount := len(pr.Commits.Nodes)
+			if commitsCount > 0 {
+				fmt.Printf("\n%d commits:\n", commitsCount)
+
+				var writer *csv.Writer
+				if repo2Config.csv != "" {
+					path := fmt.Sprintf("%s_%s-%s_pr_commits.csv", repo2Config.csv, args[0], args[1])
+					writer = MustInitCsv(path, true)
+				}
+
+				for _, commit := range pr.Commits.Nodes {
+					fmt.Printf("%s (%d additions, %d deletions, url %s):\n",
+						commit.Commit.Author.User.Id,
+						commit.Commit.Additions,
+						commit.Commit.Deletions,
+						commit.Commit.Url,
+					)
+					if writer != nil {
+						writer.Write(commit.Commit.Author.User.FormatForCsv())
+					}
+				}
+			}
+		}
+
+		if len(commenterLogins) > 0 {
+			var writer *csv.Writer
+			if repo2Config.csv != "" {
+				path := fmt.Sprintf("%s_%s-%s_pr_commenters.csv", repo2Config.csv, args[0], args[1])
+				writer = MustInitCsv(path, true)
+			}
+			GetUsersByLogins(commenterLogins, ctx, ghClient, writer, userFetchedCallback)
+		}
+
+		if len(reviewerLogins) > 0 {
+			var writer *csv.Writer
+			if repo2Config.csv != "" {
+				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.csv", repo2Config.csv, args[0], args[1])
+				writer = MustInitCsv(path, true)
+			}
+			GetUsersByLogins(reviewerLogins, ctx, ghClient, writer, userFetchedCallback)
+		}
+	}
+}
+
+func userFetchedCallback(fetched UserFetchResult, ctx context.Context, client *githubv4.Client, csvWriter *csv.Writer) {
+	if fetched.Err != nil {
+		log.WithError(fetched.Err).Warn()
+		return
+	}
+	if isLocationInteresting(string(fetched.User.Location)) {
+		fmt.Printf("%q\n", fetched.User.FormatForCsv())
+		if csvWriter != nil {
+			csvWriter.Write(fetched.User.FormatForCsv())
+		}
+	} else if repo2Config.verbose {
+		fmt.Fprintf(os.Stderr, "%s's \"%s\" location was not interesting\n",
+			fetched.Login, fetched.User.Location)
+	}
+}
+
+func MustInitCsv(csvPath string, writeHeader bool) *csv.Writer {
+	var (
+		csvFile *os.File
+		err     error
+	)
+	csvFile, err = os.OpenFile(csvPath, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		log.WithError(err).Fatal()
+	}
+	w := csv.NewWriter(csvFile)
+
+	if writeHeader {
+		w.Write([]string{
+			"Login",
+			"Location",
+			"Email",
+			"Name",
+			"Company",
+			"Bio",
+			"Registered",
+			"Followers",
+			"Following",
+			"Organisations",
+			"Hireable",
+		})
+		w.Flush()
+	}
+	if err := w.Error(); err != nil {
+		log.WithError(err).Fatal()
+	}
+
+	return w
+}
+
+// GetUsersByLogins is blocking
+func GetUsersByLogins(logins []string, ctx context.Context, client *githubv4.Client, writer *csv.Writer,
+	fetchCallback func(fetched UserFetchResult, ctx context.Context, client *githubv4.Client, writer *csv.Writer)) {
+	out := getUsersByLogins(logins, ctx, client, 5*time.Second)
 
 	for i := 0; i < len(logins); i++ {
 		select {
-		case userFetch := <-out:
-			fmt.Printf("%s: %s\n", userFetch.Login, userFetch.User.Bio)
+		case fetchedUser := <-out:
+			fetchCallback(fetchedUser, ctx, client, writer)
 		case <-time.After(10 * time.Second):
 			fmt.Println("timeout")
 		}
 	}
 
-	// prs, err := getPRs(ctx, githubGraphQlClient, args[0], args[1], "")
-	// if err != nil {
-	// 	log.WithError(err).Fatal()
-	// }
-	//
-	// for _, pr := range prs {
-	// 	fmt.Printf("\n\nPR %s (%s):\n", pr.Title, pr.Url)
-	// 	commentsCount := len(pr.Comments.Nodes)
-	// 	if commentsCount > 0 {
-	// 		fmt.Printf("\n%d comments:\n", commentsCount)
-	// 		for _, comment := range pr.Comments.Nodes {
-	// 			fmt.Printf("%s (%s):\n", comment.Author.Login, comment.Url.String())
-	// 		}
-	// 	}
-	// 	reviewsCount := len(pr.Reviews.Nodes)
-	// 	if reviewsCount > 0 {
-	// 		fmt.Printf("\n%d reviews:\n", reviewsCount)
-	// 		for _, review := range pr.Reviews.Nodes {
-	// 			fmt.Printf("%s (%s):\n", review.Author.Login, review.Url.String())
-	// 		}
-	// 	}
-	// 	commitsCount := len(pr.Commits.Nodes)
-	// 	if commitsCount > 0 {
-	// 		fmt.Printf("\n%d commits:\n", commitsCount)
-	// 		for _, commit := range pr.Commits.Nodes {
-	// 			fmt.Printf("%s (%d additions, %d deletions, url %s):\n",
-	// 				commit.Commit.Author.User.Id, commit.Commit.Additions, commit.Commit.Url)
-	// 		}
-	// 	}
-	// }
+	if writer != nil {
+		writer.Flush()
+	}
+}
+
+func isLocationInteresting(location string) bool {
+	var interestingLocationKeywords = []string{"germany", "deutschland", "poland", "berlin", "hamburg", "hamburg",
+		"hanover", "leipzig", "dresden"}
+	lowerLocation := strings.ToLower(location)
+	for _, loc := range interestingLocationKeywords {
+		if strings.Contains(lowerLocation, strings.ToLower(loc)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func getUsersByLogins(logins []string, ctx context.Context, client *githubv4.Client, timeout time.Duration) chan UserFetchResult {
@@ -127,6 +243,7 @@ func getUsersByLogins(logins []string, ctx context.Context, client *githubv4.Cli
 			}
 		}(login, duration)
 	}
+
 	return out
 }
 
@@ -141,7 +258,7 @@ func getUser(login string, ctx context.Context, client *githubv4.Client) (UserFr
 		User      UserFragment `graphql:"user(login:$login)"`
 		RateLimit RateLimit
 	}
-	err := client.Query(ctx, &q, map[string]interface{}{"login": githubv4.String(login), "maxOrgs": githubv4.Int(2)})
+	err := client.Query(ctx, &q, map[string]interface{}{"login": githubv4.String(login), "maxOrgs": githubv4.Int(3)})
 	if err != nil {
 		return UserFragment{}, err
 	}

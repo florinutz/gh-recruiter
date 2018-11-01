@@ -1,6 +1,10 @@
 package cmd
 
-import "github.com/shurcooL/githubv4"
+import (
+	"strconv"
+
+	"github.com/shurcooL/githubv4"
+)
 
 type Repository struct {
 	Id              *githubv4.String
@@ -22,12 +26,12 @@ type LangFragment struct {
 
 type UserFragment struct {
 	Id        githubv4.ID
-	Bio       githubv4.String
-	Company   githubv4.String
-	Email     githubv4.String
-	Location  githubv4.String
 	Login     githubv4.String
+	Location  githubv4.String
+	Email     githubv4.String
 	Name      githubv4.String
+	Company   githubv4.String
+	Bio       githubv4.String
 	CreatedAt githubv4.DateTime
 	Followers struct {
 		TotalCount githubv4.Int
@@ -37,19 +41,38 @@ type UserFragment struct {
 	}
 	Organizations struct {
 		TotalCount githubv4.Int
-		Nodes      []struct {
-			Id          githubv4.ID
-			Login       githubv4.String
-			Email       *githubv4.String
-			WebsiteUrl  *githubv4.URI
-			Description githubv4.String
-		}
+		// Nodes      []struct {
+		// 	Id          githubv4.ID
+		// 	Login       githubv4.String
+		// 	Email       *githubv4.String
+		// 	WebsiteUrl  *githubv4.URI
+		// 	Description githubv4.String
+		// }
 	} `graphql:"organizations(first: $maxOrgs)"`
 	IsBountyHunter githubv4.Boolean
 	IsCampusExpert githubv4.Boolean
 	IsViewer       githubv4.Boolean
 	IsEmployee     githubv4.Boolean
 	IsHireable     githubv4.Boolean
+}
+
+// FormatForCsv returns a []string representation for the full user
+func (u UserFragment) FormatForCsv() (result []string) {
+	result = []string{
+		string(u.Login),
+		string(u.Location),
+		string(u.Email),
+		string(u.Name),
+		string(u.Company),
+		string(u.Bio),
+		string(u.CreatedAt.Format("02-Jan-2006")),
+		strconv.Itoa(int(u.Followers.TotalCount)),
+		strconv.Itoa(int(u.Following.TotalCount)),
+		strconv.Itoa(int(u.Organizations.TotalCount)),
+		strconv.FormatBool(bool(u.IsHireable)),
+	}
+
+	return
 }
 
 type PRReview struct {
