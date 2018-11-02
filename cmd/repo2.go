@@ -1,16 +1,23 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/csv"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/birkelund/boltdbcache"
+	"github.com/gregjones/httpcache"
 	"github.com/shurcooL/githubv4"
 
 	log "github.com/sirupsen/logrus"
@@ -26,8 +33,6 @@ var (
 		Run:   RunRepo2,
 		Args:  cobra.ExactArgs(2),
 	}
-	CsvWriterPRReviewers *csv.Writer
-	CsvWriterPRCommiters *csv.Writer
 )
 
 var repo2Config struct {
@@ -48,8 +53,15 @@ func init() {
 	rootCmd.AddCommand(repo2Cmd)
 }
 
+const CacheBucketName = "gh-recruiter"
+
 func RunRepo2(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
+
+	cache, err := getCache(CacheBucketName)
+	if err != nil {
+		log.Warnf("Running with no cache: %s\n", err)
+	}
 
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token}))
 	ghClient := githubv4.NewClient(oauthClient)
@@ -65,11 +77,11 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 			path := fmt.Sprintf("%s_%s-%s_forkers.csv", repo2Config.csv, args[0], args[1])
 			writer = MustInitCsv(path, true)
 		}
-		GetUsersByLogins(logins, ctx, ghClient, writer, userFetchedCallback)
+		GetUsersByLogins(logins, ctx, ghClient, writer, cache, userFetchedCallback)
 	}
 
 	if repo2Config.withPRs {
-		prs, err := getPRs(ctx, ghClient, args[0], args[1], "")
+		prs, err := getPRs(ctx, ghClient, args[0], args[1], "", 0)
 		if err != nil {
 			log.WithError(err).Fatal()
 		}
@@ -130,7 +142,7 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_commenters.csv", repo2Config.csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			GetUsersByLogins(commenterLogins, ctx, ghClient, writer, userFetchedCallback)
+			GetUsersByLogins(commenterLogins, ctx, ghClient, writer, cache, userFetchedCallback)
 		}
 
 		if len(reviewerLogins) > 0 {
@@ -139,20 +151,33 @@ func RunRepo2(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.csv", repo2Config.csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			GetUsersByLogins(reviewerLogins, ctx, ghClient, writer, userFetchedCallback)
+			GetUsersByLogins(reviewerLogins, ctx, ghClient, writer, cache, userFetchedCallback)
 		}
 	}
 }
 
-func userFetchedCallback(fetched UserFetchResult, ctx context.Context, client *githubv4.Client, csvWriter *csv.Writer) {
+func getCache(bucketName string) (cache httpcache.Cache, err error) {
+	if cacheDir, err := os.UserCacheDir(); err != nil {
+		return nil, err
+	} else if cache, err = boltdbcache.New(filepath.Join(cacheDir, bucketName)); err != nil {
+		return nil, err
+	}
+
+	return
+}
+
+func userFetchedCallback(fetched UserFetchResult, ctx context.Context, client *githubv4.Client, csvWriter *csv.Writer,
+	cache httpcache.Cache) {
 	if fetched.Err != nil {
 		log.WithError(fetched.Err).Warn()
 		return
 	}
+
 	if isLocationInteresting(string(fetched.User.Location)) {
 		fmt.Printf("%q\n", fetched.User.FormatForCsv())
 		if csvWriter != nil {
 			csvWriter.Write(fetched.User.FormatForCsv())
+			csvWriter.Flush()
 		}
 	} else if repo2Config.verbose {
 		fmt.Fprintf(os.Stderr, "%s's \"%s\" location was not interesting\n",
@@ -195,14 +220,14 @@ func MustInitCsv(csvPath string, writeHeader bool) *csv.Writer {
 }
 
 // GetUsersByLogins is blocking
-func GetUsersByLogins(logins []string, ctx context.Context, client *githubv4.Client, writer *csv.Writer,
-	fetchCallback func(fetched UserFetchResult, ctx context.Context, client *githubv4.Client, writer *csv.Writer)) {
-	out := getUsersByLogins(logins, ctx, client, 5*time.Second)
+func GetUsersByLogins(logins []string, ctx context.Context, client *githubv4.Client, writer *csv.Writer, cache httpcache.Cache,
+	fetchCallback func(fetched UserFetchResult, ctx context.Context, client *githubv4.Client, writer *csv.Writer, cache httpcache.Cache)) {
+	out := getUsersByLogins(logins, ctx, client, 5*time.Second, cache)
 
 	for i := 0; i < len(logins); i++ {
 		select {
 		case fetchedUser := <-out:
-			fetchCallback(fetchedUser, ctx, client, writer)
+			fetchCallback(fetchedUser, ctx, client, writer, cache)
 		case <-time.After(10 * time.Second):
 			fmt.Println("timeout")
 		}
@@ -226,7 +251,8 @@ func isLocationInteresting(location string) bool {
 	return false
 }
 
-func getUsersByLogins(logins []string, ctx context.Context, client *githubv4.Client, timeout time.Duration) chan UserFetchResult {
+func getUsersByLogins(logins []string, ctx context.Context, client *githubv4.Client, timeout time.Duration,
+	cache httpcache.Cache) chan UserFetchResult {
 	out := make(chan UserFetchResult)
 	sent := 0
 	for _, login := range logins {
@@ -234,7 +260,7 @@ func getUsersByLogins(logins []string, ctx context.Context, client *githubv4.Cli
 		go func(login string, wait time.Duration) {
 			time.Sleep(wait)
 
-			user, err := getUser(login, ctx, client)
+			user, err := getUser(login, ctx, client, cache)
 
 			out <- UserFetchResult{login, user, err}
 			sent++
@@ -253,14 +279,47 @@ type UserFetchResult struct {
 	Err   error
 }
 
-func getUser(login string, ctx context.Context, client *githubv4.Client) (UserFragment, error) {
+func getUser(login string, ctx context.Context, client *githubv4.Client, cache httpcache.Cache) (UserFragment, error) {
+	var (
+		buf      *bytes.Buffer
+		cacheKey string
+	)
+
+	if cache != nil {
+		h := md5.New()
+		io.WriteString(h, login)
+		cacheKey = fmt.Sprintf("user-%s", fmt.Sprintf("%x", h.Sum(nil)))
+
+		if encoded, ok := cache.Get(cacheKey); ok {
+			buf = bytes.NewBuffer(encoded)
+			dec := gob.NewDecoder(buf)
+			var u UserFragment
+			err := dec.Decode(&u)
+			if err != nil {
+				log.WithError(err).Warn()
+			}
+			return u, err
+		}
+	}
+
 	var q struct {
 		User      UserFragment `graphql:"user(login:$login)"`
 		RateLimit RateLimit
 	}
+
 	err := client.Query(ctx, &q, map[string]interface{}{"login": githubv4.String(login), "maxOrgs": githubv4.Int(3)})
 	if err != nil {
 		return UserFragment{}, err
+	}
+
+	if cache != nil {
+		buf = bytes.NewBuffer(nil)
+		enc := gob.NewEncoder(buf)
+		err := enc.Encode(q.User)
+		if err != nil {
+			log.WithError(err).Warn()
+		}
+		cache.Set(cacheKey, buf.Bytes())
 	}
 
 	return q.User, nil
@@ -310,6 +369,7 @@ func getPRs(
 	repoOwner string,
 	repoName string,
 	after string,
+	depth int,
 ) (results []PRWithData, err error) {
 	var (
 		nodes       []PRWithData
@@ -317,12 +377,15 @@ func getPRs(
 		endCursor   string
 	)
 
+	const PrsPerBatch = 100
+
 	variables := map[string]interface{}{
 		"repositoryOwner":   githubv4.String(repoOwner),
 		"repositoryName":    githubv4.String(repoName),
-		"prsPerBatch":       githubv4.Int(100),
+		"prsPerBatch":       githubv4.Int(PrsPerBatch),
 		"prItemsPerBatch":   githubv4.Int(100),
 		"prCommitsPerBatch": githubv4.Int(5), // a safe value so that we don't request too much data
+		"maxOrgs":           githubv4.Int(5),
 	}
 
 	if after != "" {
@@ -368,8 +431,11 @@ func getPRs(
 
 	results = append(results, nodes...)
 
-	if hasNextPage {
-		data, err := getPRs(ctx, client, repoOwner, repoName, endCursor)
+	depth++
+	isNotDeepEnough := depth*PrsPerBatch <= 200
+
+	if hasNextPage && isNotDeepEnough {
+		data, err := getPRs(ctx, client, repoOwner, repoName, endCursor, depth)
 		if err != nil {
 			return results, err
 		}
