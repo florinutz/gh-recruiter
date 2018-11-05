@@ -31,7 +31,7 @@ import (
 // repoCmd represents the repo command
 var (
 	repoCmd = &cobra.Command{
-		Use:   "repo2",
+		Use:   "repo",
 		Short: "filters users who interacted with the repo by location",
 		Run:   RunRepo,
 		Args:  cobra.ExactArgs(2),
@@ -59,18 +59,18 @@ func init() {
 const CacheBucketName = "gh-recruiter"
 
 func RunRepo(cmd *cobra.Command, args []string) {
-	ctx := context.Background()
-
 	cache, err := getCache(CacheBucketName)
 	if err != nil {
 		log.Warnf("Running with no cache: %s\n", err)
 	}
-
+	ctx := context.Background()
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token}))
 	ghClient := githubv4.NewClient(oauthClient)
 
+	g := GithubFetcher{ghClient, &cache}
+
 	if repoConfig.withForkers {
-		logins, err := getForkers(ctx, ghClient, args[0], args[1], "", 100)
+		logins, err := g.GetForkers(ctx, args[0], args[1], (*githubv4.String)(nil), 100)
 		if err != nil {
 			log.WithError(err).Fatal()
 		}
@@ -80,11 +80,11 @@ func RunRepo(cmd *cobra.Command, args []string) {
 			path := fmt.Sprintf("%s_%s-%s_forkers.csv", repoConfig.csv, args[0], args[1])
 			writer = MustInitCsv(path, true)
 		}
-		GetUsersByLogins(logins, ctx, ghClient, writer, cache, userFetchedCallback)
+		g.GetUsersByLogins(logins, ctx, writer, userFetchedCallback)
 	}
 
 	if repoConfig.withPRs {
-		prs, err := getPRs(ctx, ghClient, args[0], args[1], "", 0)
+		prs, err := g.GetPRs(ctx, args[0], args[1], (*githubv4.String)(nil), 0)
 		if err != nil {
 			log.WithError(err).Fatal()
 		}
@@ -145,7 +145,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_commenters.csv", repoConfig.csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			GetUsersByLogins(commenterLogins, ctx, ghClient, writer, cache, userFetchedCallback)
+			g.GetUsersByLogins(commenterLogins, ctx, writer, userFetchedCallback)
 		}
 
 		if len(reviewerLogins) > 0 {
@@ -154,7 +154,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.csv", repoConfig.csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			GetUsersByLogins(reviewerLogins, ctx, ghClient, writer, cache, userFetchedCallback)
+			g.GetUsersByLogins(reviewerLogins, ctx, writer, userFetchedCallback)
 		}
 	}
 }
@@ -169,7 +169,7 @@ func getCache(bucketName string) (cache httpcache.Cache, err error) {
 	return
 }
 
-func userFetchedCallback(ctx context.Context, fetched UserFetchResult, csvWriter *csv.Writer) {
+func userFetchedCallback(fetched UserFetchResult, ctx context.Context, csvWriter *csv.Writer) {
 	if fetched.Err != nil {
 		log.WithError(fetched.Err).Warn()
 		return
@@ -386,7 +386,7 @@ func getHashForCall(q interface{}, variables map[string]interface{}) (string, er
 }
 
 // GetUsersByLogins is blocking
-func (g *GithubFetcher) GetUsersByLogins(ctx context.Context, logins []string, writer *csv.Writer,
+func (g *GithubFetcher) GetUsersByLogins(logins []string, ctx context.Context, writer *csv.Writer,
 	fetchCallback func(fetched UserFetchResult, ctx context.Context, writer *csv.Writer)) {
 	out := make(chan UserFetchResult)
 	sent := 0
@@ -463,20 +463,13 @@ type PRWithData struct {
 	} `graphql:"commits(first: $prCommitsPerBatch)"`
 }
 
-func getPRs(
+func (g *GithubFetcher) GetPRs(
 	ctx context.Context,
-	client *githubv4.Client,
 	repoOwner string,
 	repoName string,
-	after string,
+	after *githubv4.String,
 	depth int,
 ) (results []PRWithData, err error) {
-	var (
-		nodes       []PRWithData
-		hasNextPage bool
-		endCursor   string
-	)
-
 	const PrsPerBatch = 100
 
 	variables := map[string]interface{}{
@@ -486,56 +479,34 @@ func getPRs(
 		"prItemsPerBatch":   githubv4.Int(100),
 		"prCommitsPerBatch": githubv4.Int(5), // a safe value so that we don't request too much data
 		"maxOrgs":           githubv4.Int(5),
+		"after":             after,
 	}
 
-	if after != "" {
-		var q struct {
-			Repository struct {
-				PullRequests struct {
-					PageInfo PageInfo
-					Nodes    []PRWithData
-				} `graphql:"pullRequests(after: $after, first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
-			} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
-			RateLimit RateLimit
-		}
-		variables["after"] = githubv4.String(after)
-
-		err = client.Query(ctx, &q, variables)
-		if err != nil {
-			return
-		}
-
-		nodes = q.Repository.PullRequests.Nodes
-		hasNextPage = bool(q.Repository.PullRequests.PageInfo.HasNextPage)
-		endCursor = string(q.Repository.PullRequests.PageInfo.EndCursor)
-	} else {
-		var q struct {
-			Repository struct {
-				PullRequests struct {
-					PageInfo PageInfo
-					Nodes    []PRWithData
-				} `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
-			} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
-			RateLimit RateLimit
-		}
-
-		err = client.Query(ctx, &q, variables)
-		if err != nil {
-			return
-		}
-
-		nodes = q.Repository.PullRequests.Nodes
-		hasNextPage = bool(q.Repository.PullRequests.PageInfo.HasNextPage)
-		endCursor = string(q.Repository.PullRequests.PageInfo.EndCursor)
+	var q struct {
+		Repository struct {
+			PullRequests struct {
+				PageInfo PageInfo
+				Nodes    []PRWithData
+			} `graphql:"pullRequests(after: $after, first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+		RateLimit RateLimit
 	}
 
-	results = append(results, nodes...)
+	err = g.Query(ctx, &q, variables)
+	if err != nil {
+		return
+	}
+
+	hasNextPage := bool(q.Repository.PullRequests.PageInfo.HasNextPage)
+	endCursor := &q.Repository.PullRequests.PageInfo.EndCursor
+
+	results = append(results, q.Repository.PullRequests.Nodes...)
 
 	depth++
 	isNotDeepEnough := depth*PrsPerBatch <= 200
 
 	if hasNextPage && isNotDeepEnough {
-		data, err := getPRs(ctx, client, repoOwner, repoName, endCursor, depth)
+		data, err := g.GetPRs(ctx, repoOwner, repoName, endCursor, depth)
 		if err != nil {
 			return results, err
 		}
@@ -546,9 +517,8 @@ func getPRs(
 }
 
 // todo filter these by location
-func getForkers(
+func (g *GithubFetcher) GetForkers(
 	ctx context.Context,
-	client *githubv4.Client,
 	repoOwner string,
 	repoName string,
 	after *githubv4.String,
@@ -564,7 +534,7 @@ func getForkers(
 		RateLimit RateLimit
 	}
 
-	err = client.Query(ctx, &q, map[string]interface{}{
+	err = g.Query(ctx, &q, map[string]interface{}{
 		"repositoryOwner": githubv4.String(repoOwner),
 		"repositoryName":  githubv4.String(repoName),
 		"itemsPerBatch":   githubv4.Int(pageSize),
@@ -580,7 +550,7 @@ func getForkers(
 
 	after = &q.Repository.Forks.PageInfo.EndCursor
 
-	data, err := getForkers(ctx, client, repoOwner, repoName, after, pageSize)
+	data, err := g.GetForkers(ctx, repoOwner, repoName, after, pageSize)
 	if err != nil {
 		return results, err
 	}
