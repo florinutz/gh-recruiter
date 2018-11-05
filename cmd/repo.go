@@ -4,18 +4,20 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
-	"crypto/sha1"
 	"encoding/csv"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
 	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/birkelund/boltdbcache"
 	"github.com/gregjones/httpcache"
@@ -275,27 +277,13 @@ func (g *GithubFetcher) GetUser(ctx context.Context, login string) (UserFragment
 
 // Query wraps the client's query in order to cache it
 func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
-	var (
-		cache    httpcache.Cache
-		cacheKey string
-	)
-
-	type withTime struct {
-		Time time.Time
-		Q    interface{}
-	}
+	var cache httpcache.Cache
 
 	if g.Cache != nil {
 		cache = *g.Cache
-		hash, err := getHashForCall(q, variables)
-		cacheKey = fmt.Sprintf("query-%s", string(hash))
-		if err == nil {
-			var withTime withTime
-			if item, ok := cache.Get(cacheKey); ok {
-				if err = json.Unmarshal(item, q); err == nil {
-					return nil
-				}
-			}
+		if itemFromCache, err := readQueryCache(cache, q, variables, 168*time.Hour); err == nil {
+			q = itemFromCache
+			return nil
 		}
 	}
 
@@ -305,25 +293,75 @@ func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[
 	}
 
 	if g.Cache != nil {
-		toMarshal := withTime{Time: time.Now(), Q: q}
-		jsonBytes, err := json.Marshal(toMarshal)
-		if err != nil {
-			log.WithError(err).Warn()
-		}
-		cache.Set(cacheKey, jsonBytes)
+		cache = *g.Cache
+		writeQueryCache(cache, q, variables)
 	}
 
 	return nil
 }
 
-func getJson(v interface{}, indent string) (string, error) {
+type queryWithTime struct {
+	Time  time.Time
+	Query interface{}
+}
+
+func writeQueryCache(cache httpcache.Cache, q interface{}, variables map[string]interface{}) error {
+	hash, err := getHashForCall(q, variables)
+	if err != nil {
+		return errors.Wrap(err, "coultn't compute ghv4 call hash")
+	}
+	cacheKey := fmt.Sprintf("query-%s", hash)
+	toMarshal := queryWithTime{Time: time.Now(), Query: q}
+	jsonBytes, err := json.Marshal(toMarshal)
+	if err != nil {
+		return errors.Wrap(err, "couldn't marshal data for cache")
+	}
+
+	cache.Set(cacheKey, jsonBytes)
+
+	return nil
+}
+
+func readQueryCache(cache httpcache.Cache, q interface{}, variables map[string]interface{}, maxLifetime time.Duration) (
+	interface{}, error) {
+	hash, err := getHashForCall(q, variables)
+	if err != nil {
+		return nil, err
+	}
+	cacheKey := fmt.Sprintf("query-%s", hash)
+
+	var wt queryWithTime
+	item, ok := cache.Get(cacheKey)
+	if !ok {
+		return nil, fmt.Errorf("no cache for key %s", cacheKey)
+	}
+	if err = json.Unmarshal(item, &wt); err != nil {
+		return nil, errors.Wrap(err, "cache unmarshaling error")
+	}
+
+	if time.Since(wt.Time) > maxLifetime { // 1w
+		return nil, fmt.Errorf("no cache for key %s", cacheKey)
+	}
+
+	return wt.Query, nil
+}
+
+func getJson(v interface{}, indent string, forZeroVal bool) (string, error) {
 	if v == nil {
 		return "", errors.New("nil input")
 	}
 
+	if forZeroVal {
+		// make v its 0 value so we get consistent hashes even for incoming values
+		ptr := reflect.New(reflect.TypeOf(v))
+		v = ptr.Elem().Interface()
+	}
+
 	var buf bytes.Buffer
+
 	w := json.NewEncoder(&buf)
 	w.SetIndent("", indent)
+
 	err := w.Encode(v)
 	if err != nil {
 		return "", err
@@ -332,18 +370,19 @@ func getJson(v interface{}, indent string) (string, error) {
 	return buf.String(), nil
 }
 
-func getHashForCall(q interface{}, variables map[string]interface{}) ([]byte, error) {
-	json1, err := getJson(q, "")
+func getHashForCall(q interface{}, variables map[string]interface{}) (string, error) {
+	jsonQuery, err := getJson(q, "", true)
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+	jsonVars, err := getJson(variables, "", false)
+	if err != nil {
+		return "", err
 	}
 
-	json2, err := getJson(variables, "")
-	if err != nil {
-		return nil, err
-	}
+	sum := md5.Sum([]byte(jsonQuery + jsonVars))
 
-	return sha1.Sum([]byte(json1 + json2))[:], nil
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // GetUsersByLogins is blocking
