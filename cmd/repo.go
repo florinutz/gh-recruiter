@@ -251,12 +251,12 @@ func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[
 	if g.Cache != nil {
 		cache = *g.Cache
 		if itemFromCache, err := readQueryCache(cache, q, variables, 168*time.Hour); err == nil {
-			// vq := reflect.ValueOf(q).Elem()
-			// vi := reflect.ValueOf(itemFromCache)
-			// vq.Set(vi)
+			vq := reflect.ValueOf(q).Elem()
+			vi := reflect.ValueOf(itemFromCache)
+			vq.Set(vi)
 			// q = itemFromCache
 
-			//reflect.ValueOf(q).Elem().Set(reflect.ValueOf(itemFromCache))
+			// reflect.ValueOf(q).Elem().Set(reflect.ValueOf(itemFromCache))
 			fmt.Printf("inside func: %+v\n\n", itemFromCache)
 			fmt.Printf("typeof q: %s\n typeof variables: %s\n typeof itemFromCache: %s\n\n",
 				reflect.TypeOf(q),
@@ -280,7 +280,7 @@ func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[
 	return nil
 }
 
-type queryWithTime struct {
+type QueryWithTime struct {
 	Time  time.Time
 	Query interface{}
 }
@@ -291,9 +291,9 @@ func writeQueryCache(cache httpcache.Cache, q interface{}, variables map[string]
 		return errors.Wrap(err, "coultn't compute ghv4 call hash")
 	}
 	cacheKey := fmt.Sprintf("query-%s", hash)
-	toMarshal := queryWithTime{Time: time.Now(), Query: q}
+	toMarshal := QueryWithTime{Time: time.Now(), Query: q}
 
-	var buf *bytes.Buffer
+	buf := bytes.NewBuffer([]byte{})
 	encoder := gob.NewEncoder(buf)
 	encoder.Encode(toMarshal)
 
@@ -310,13 +310,13 @@ func readQueryCache(cache httpcache.Cache, q interface{}, variables map[string]i
 	}
 	cacheKey := fmt.Sprintf("query-%s", hash)
 
-	var wt queryWithTime
+	var wt QueryWithTime
 	item, ok := cache.Get(cacheKey)
 	if !ok {
 		return nil, fmt.Errorf("no cache for key %s", cacheKey)
 	}
 
-	var buf *bytes.Buffer
+	buf := bytes.NewBuffer([]byte{})
 	buf.Write(item)
 
 	decoder := gob.NewDecoder(buf)
@@ -330,26 +330,6 @@ func readQueryCache(cache httpcache.Cache, q interface{}, variables map[string]i
 	}
 
 	return wt.Query, nil
-}
-
-func writeGob(filePath string, object interface{}) error {
-	file, err := os.Create(filePath)
-	if err == nil {
-		encoder := gob.NewEncoder(file)
-		encoder.Encode(object)
-	}
-	file.Close()
-	return err
-}
-
-func readGob(filePath string, object interface{}) error {
-	file, err := os.Open(filePath)
-	if err == nil {
-		decoder := gob.NewDecoder(file)
-		err = decoder.Decode(object)
-	}
-	file.Close()
-	return err
 }
 
 func getJson(v interface{}, indent string, forZeroVal bool) (string, error) {
