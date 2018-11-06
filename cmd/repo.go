@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -226,50 +225,16 @@ type GithubFetcher struct {
 	Cache  *httpcache.Cache
 }
 
-func (g *GithubFetcher) GetUser(ctx context.Context, login string) (UserFragment, error) {
-	var (
-		buf      *bytes.Buffer
-		cacheKey string
-	)
-
-	if g.Cache != nil {
-		cache := *g.Cache
-		h := md5.New()
-		io.WriteString(h, login)
-		cacheKey = fmt.Sprintf("user-%s", fmt.Sprintf("%x", h.Sum(nil)))
-
-		if encoded, ok := cache.Get(cacheKey); ok {
-			buf = bytes.NewBuffer(encoded)
-			dec := gob.NewDecoder(buf)
-			var u UserFragment
-			err := dec.Decode(&u)
-			if err != nil {
-				log.WithError(err).Warn()
-			}
-			return u, err
-		}
-	}
-
+func (g *GithubFetcher) GetUser(ctx context.Context, login string) (User, error) {
 	var q struct {
-		User      UserFragment `graphql:"user(login:$login)"`
+		User      User `graphql:"user(login:$login)"`
 		RateLimit RateLimit
 	}
 	vars := map[string]interface{}{"login": githubv4.String(login), "maxOrgs": githubv4.Int(3)}
 
 	err := g.Query(ctx, &q, vars)
 	if err != nil {
-		return UserFragment{}, err
-	}
-
-	if g.Cache != nil {
-		cache := *g.Cache
-		buf = bytes.NewBuffer(nil)
-		enc := gob.NewEncoder(buf)
-		err := enc.Encode(q.User)
-		if err != nil {
-			log.WithError(err).Warn()
-		}
-		cache.Set(cacheKey, buf.Bytes())
+		return User{}, err
 	}
 
 	return q.User, nil
@@ -277,12 +242,27 @@ func (g *GithubFetcher) GetUser(ctx context.Context, login string) (UserFragment
 
 // Query wraps the client's query in order to cache it
 func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
+	if t := reflect.TypeOf(q); t.Kind() != reflect.Ptr {
+		return errors.New("incoming query is not a pointer")
+	}
+
 	var cache httpcache.Cache
 
 	if g.Cache != nil {
 		cache = *g.Cache
 		if itemFromCache, err := readQueryCache(cache, q, variables, 168*time.Hour); err == nil {
-			q = itemFromCache
+			// vq := reflect.ValueOf(q).Elem()
+			// vi := reflect.ValueOf(itemFromCache)
+			// vq.Set(vi)
+			// q = itemFromCache
+
+			//reflect.ValueOf(q).Elem().Set(reflect.ValueOf(itemFromCache))
+			fmt.Printf("inside func: %+v\n\n", itemFromCache)
+			fmt.Printf("typeof q: %s\n typeof variables: %s\n typeof itemFromCache: %s\n\n",
+				reflect.TypeOf(q),
+				reflect.TypeOf(variables),
+				reflect.TypeOf(itemFromCache),
+			)
 			return nil
 		}
 	}
@@ -312,12 +292,12 @@ func writeQueryCache(cache httpcache.Cache, q interface{}, variables map[string]
 	}
 	cacheKey := fmt.Sprintf("query-%s", hash)
 	toMarshal := queryWithTime{Time: time.Now(), Query: q}
-	jsonBytes, err := json.Marshal(toMarshal)
-	if err != nil {
-		return errors.Wrap(err, "couldn't marshal data for cache")
-	}
 
-	cache.Set(cacheKey, jsonBytes)
+	var buf *bytes.Buffer
+	encoder := gob.NewEncoder(buf)
+	encoder.Encode(toMarshal)
+
+	cache.Set(cacheKey, buf.Bytes())
 
 	return nil
 }
@@ -335,7 +315,13 @@ func readQueryCache(cache httpcache.Cache, q interface{}, variables map[string]i
 	if !ok {
 		return nil, fmt.Errorf("no cache for key %s", cacheKey)
 	}
-	if err = json.Unmarshal(item, &wt); err != nil {
+
+	var buf *bytes.Buffer
+	buf.Write(item)
+
+	decoder := gob.NewDecoder(buf)
+	err = decoder.Decode(q)
+	if err != nil {
 		return nil, errors.Wrap(err, "cache unmarshaling error")
 	}
 
@@ -344,6 +330,26 @@ func readQueryCache(cache httpcache.Cache, q interface{}, variables map[string]i
 	}
 
 	return wt.Query, nil
+}
+
+func writeGob(filePath string, object interface{}) error {
+	file, err := os.Create(filePath)
+	if err == nil {
+		encoder := gob.NewEncoder(file)
+		encoder.Encode(object)
+	}
+	file.Close()
+	return err
+}
+
+func readGob(filePath string, object interface{}) error {
+	file, err := os.Open(filePath)
+	if err == nil {
+		decoder := gob.NewDecoder(file)
+		err = decoder.Decode(object)
+	}
+	file.Close()
+	return err
 }
 
 func getJson(v interface{}, indent string, forZeroVal bool) (string, error) {
@@ -434,7 +440,7 @@ func isLocationInteresting(location string) bool {
 
 type UserFetchResult struct {
 	Login string
-	User  UserFragment
+	User  User
 	Err   error
 }
 
@@ -516,7 +522,6 @@ func (g *GithubFetcher) GetPRs(
 	return
 }
 
-// todo filter these by location
 func (g *GithubFetcher) GetForkers(
 	ctx context.Context,
 	repoOwner string,
@@ -540,12 +545,17 @@ func (g *GithubFetcher) GetForkers(
 		"itemsPerBatch":   githubv4.Int(pageSize),
 		"after":           after,
 	})
-	if err != nil || !q.Repository.Forks.PageInfo.HasNextPage {
+	fmt.Printf("outside func: %+v\n", q)
+	if err != nil {
 		return
 	}
 
 	for _, owner := range q.Repository.Forks.Nodes {
 		results = append(results, owner.Owner.Login)
+	}
+
+	if !q.Repository.Forks.PageInfo.HasNextPage {
+		return
 	}
 
 	after = &q.Repository.Forks.PageInfo.EndCursor
