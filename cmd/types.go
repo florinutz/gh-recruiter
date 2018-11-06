@@ -24,7 +24,7 @@ type LangFragment struct {
 	Name *githubv4.String
 }
 
-type UserFragment struct {
+type User struct {
 	Id        githubv4.ID
 	Login     githubv4.String
 	Location  githubv4.String
@@ -57,7 +57,7 @@ type UserFragment struct {
 }
 
 // FormatForCsv returns a []string representation for the full user
-func (u UserFragment) FormatForCsv() (result []string) {
+func (u User) FormatForCsv() (result []string) {
 	result = []string{
 		string(u.Login),
 		string(u.Location),
@@ -96,7 +96,7 @@ type PRCommit struct {
 		Additions githubv4.Int
 		Deletions githubv4.Int
 		Author    struct {
-			User UserFragment
+			User User
 		}
 		AuthoredDate githubv4.DateTime
 		Status       struct {
@@ -129,7 +129,7 @@ type PRs struct {
 type Releases struct {
 	TotalCount *githubv4.Int
 	Nodes      []struct {
-		Author UserFragment
+		Author User
 	}
 }
 
@@ -137,7 +137,7 @@ type Stargazers struct {
 	TotalCount *githubv4.Int
 	Edges      []struct {
 		StarredAt *githubv4.DateTime
-		Node      UserFragment
+		Node      User
 	}
 }
 
