@@ -66,7 +66,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token}))
 	ghClient := githubv4.NewClient(oauthClient)
 
-	g := GithubFetcher{ghClient, &cache}
+	g := GithubFetcher{ghClient, cache}
 
 	if repoConfig.withForkers {
 		logins, err := g.GetForkers(ctx, args[0], args[1], (*githubv4.String)(nil), 100)
@@ -158,11 +158,18 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	}
 }
 
-func getCache(bucketName string) (cache httpcache.Cache, err error) {
+func getCache(bucketName string) (cache *Cache, err error) {
 	if cacheDir, err := os.UserCacheDir(); err != nil {
 		return nil, err
-	} else if cache, err = boltdbcache.New(filepath.Join(cacheDir, bucketName)); err != nil {
-		return nil, err
+	} else {
+		c, err := boltdbcache.New(filepath.Join(cacheDir, bucketName))
+		if err != nil {
+			return nil, err
+		}
+		cache = &Cache{
+			Validity: 168 * time.Hour,
+			Cache:    c,
+		}
 	}
 
 	return
@@ -222,7 +229,7 @@ func MustInitCsv(csvPath string, writeHeader bool) *csv.Writer {
 
 type GithubFetcher struct {
 	Client *githubv4.Client
-	Cache  *httpcache.Cache
+	Cache  *Cache
 }
 
 func (g *GithubFetcher) GetUser(ctx context.Context, login string) (User, error) {
@@ -240,17 +247,36 @@ func (g *GithubFetcher) GetUser(ctx context.Context, login string) (User, error)
 	return q.User, nil
 }
 
+type Cache struct {
+	httpcache.Cache
+	Validity time.Duration
+}
+
+func (cache Cache) WriteQuery(q interface{}, variables map[string]interface{}) error {
+	hash, err := getHashForCall(q, variables)
+	if err != nil {
+		return errors.Wrap(err, "coultn't compute ghv4 call hash")
+	}
+	cacheKey := fmt.Sprintf("query-%s", hash)
+	toMarshal := QueryWithTime{Time: time.Now(), Query: q}
+
+	buf := bytes.NewBuffer([]byte{})
+	encoder := gob.NewEncoder(buf)
+	encoder.Encode(toMarshal)
+
+	cache.Set(cacheKey, buf.Bytes())
+
+	return nil
+}
+
 // Query wraps the client's query in order to cache it
 func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
 	if t := reflect.TypeOf(q); t.Kind() != reflect.Ptr {
 		return errors.New("incoming query is not a pointer")
 	}
 
-	var cache httpcache.Cache
-
 	if g.Cache != nil {
-		cache = *g.Cache
-		if itemFromCache, err := readQueryCache(cache, q, variables, 168*time.Hour); err == nil {
+		if itemFromCache, err := g.Cache.ReadQuery(q, variables); err == nil {
 			vq := reflect.ValueOf(q).Elem()
 			vi := reflect.ValueOf(itemFromCache)
 			vq.Set(vi)
@@ -273,8 +299,7 @@ func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[
 	}
 
 	if g.Cache != nil {
-		cache = *g.Cache
-		writeQueryCache(cache, q, variables)
+		g.Cache.WriteQuery(q, variables)
 	}
 
 	return nil
@@ -285,24 +310,7 @@ type QueryWithTime struct {
 	Query interface{}
 }
 
-func writeQueryCache(cache httpcache.Cache, q interface{}, variables map[string]interface{}) error {
-	hash, err := getHashForCall(q, variables)
-	if err != nil {
-		return errors.Wrap(err, "coultn't compute ghv4 call hash")
-	}
-	cacheKey := fmt.Sprintf("query-%s", hash)
-	toMarshal := QueryWithTime{Time: time.Now(), Query: q}
-
-	buf := bytes.NewBuffer([]byte{})
-	encoder := gob.NewEncoder(buf)
-	encoder.Encode(toMarshal)
-
-	cache.Set(cacheKey, buf.Bytes())
-
-	return nil
-}
-
-func readQueryCache(cache httpcache.Cache, q interface{}, variables map[string]interface{}, maxLifetime time.Duration) (
+func (cache Cache) ReadQuery(q interface{}, variables map[string]interface{}) (
 	interface{}, error) {
 	hash, err := getHashForCall(q, variables)
 	if err != nil {
@@ -325,7 +333,7 @@ func readQueryCache(cache httpcache.Cache, q interface{}, variables map[string]i
 		return nil, errors.Wrap(err, "cache unmarshaling error")
 	}
 
-	if time.Since(wt.Time) > maxLifetime { // 1w
+	if time.Since(wt.Time) > cache.Validity {
 		return nil, fmt.Errorf("no cache for key %s", cacheKey)
 	}
 
