@@ -24,7 +24,7 @@ var (
 	repoCmd = &cobra.Command{
 		Use:   "repo",
 		Short: "filters users who interacted with the repo by location",
-		Run:   RunRepo,
+		Run:   runRepo,
 		Args:  cobra.ExactArgs(2),
 	}
 )
@@ -42,15 +42,15 @@ func init() {
 	repoCmd.Flags().BoolVarP(&repoConfig.verbose, "verbose", "v", false, "verbose?")
 	repoCmd.Flags().BoolVarP(&repoConfig.withForkers, "forkers", "f", false, "fetch forkers?")
 	repoCmd.Flags().BoolVarP(&repoConfig.withPRs, "prs", "p", false,
-		"fetch users involved in PRs?")
+		"fetch users involved in prs?")
 
 	rootCmd.AddCommand(repoCmd)
 }
 
-const CacheBucketName = "gh-recruiter"
+const cacheBucketName = "gh-recruiter"
 
-func RunRepo(cmd *cobra.Command, args []string) {
-	c, err := cache.NewCache(CacheBucketName, 168*time.Hour)
+func runRepo(cmd *cobra.Command, args []string) {
+	c, err := cache.NewCache(cacheBucketName, 168*time.Hour)
 	if err != nil {
 		log.Warnf("Running with no cache: %s\n", err)
 	}
@@ -58,7 +58,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: rootConfig.token}))
 	ghClient := githubv4.NewClient(oauthClient)
 
-	g := fetch.GithubFetcher{ghClient, c}
+	g := fetch.GithubFetcher{Client: ghClient, Cache: c}
 
 	if repoConfig.withForkers {
 		logins, err := g.GetForkers(ctx, args[0], args[1], (*githubv4.String)(nil), 100)
@@ -71,7 +71,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 			path := fmt.Sprintf("%s_%s-%s_forkers.csv", repoConfig.csv, args[0], args[1])
 			writer = MustInitCsv(path, true)
 		}
-		g.GetUsersByLogins(logins, ctx, writer, userFetchedCallback)
+		g.GetUsersByLogins(ctx, logins, writer, userFetchedCallback)
 	}
 
 	if repoConfig.withPRs {
@@ -86,13 +86,13 @@ func RunRepo(cmd *cobra.Command, args []string) {
 			reviewerLogins  []string
 		)
 		for _, pr := range prs {
-			fmt.Printf("\n\nPR %s (%s):\n", pr.Title, pr.Url)
+			fmt.Printf("\n\nPR %s (%s):\n", pr.Title, pr.URL)
 
 			commentsCount := len(pr.Comments.Nodes)
 			if commentsCount > 0 {
 				fmt.Printf("\n%d comments:\n", commentsCount)
 				for _, comment := range pr.Comments.Nodes {
-					fmt.Printf("%s (%s):\n", comment.Author.Login, comment.Url.String())
+					fmt.Printf("%s (%s):\n", comment.Author.Login, comment.URL.String())
 					commenterLogins = append(commenterLogins, string(comment.Author.Login))
 				}
 			}
@@ -101,7 +101,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 			if reviewsCount > 0 {
 				fmt.Printf("\n%d reviews:\n", reviewsCount)
 				for _, review := range pr.Reviews.Nodes {
-					fmt.Printf("%s (%s):\n", review.Author.Login, review.Url.String())
+					fmt.Printf("%s (%s):\n", review.Author.Login, review.URL.String())
 					reviewerLogins = append(reviewerLogins, string(review.Author.Login))
 				}
 			}
@@ -118,10 +118,10 @@ func RunRepo(cmd *cobra.Command, args []string) {
 
 				for _, commit := range pr.Commits.Nodes {
 					fmt.Printf("%s (%d additions, %d deletions, url %s):\n",
-						commit.Commit.Author.User.Id,
+						commit.Commit.Author.User.ID,
 						commit.Commit.Additions,
 						commit.Commit.Deletions,
-						commit.Commit.Url,
+						commit.Commit.URL,
 					)
 					if writer != nil {
 						writer.Write(commit.Commit.Author.User.FormatForCsv())
@@ -136,7 +136,7 @@ func RunRepo(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_commenters.csv", repoConfig.csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			g.GetUsersByLogins(commenterLogins, ctx, writer, userFetchedCallback)
+			g.GetUsersByLogins(ctx, commenterLogins, writer, userFetchedCallback)
 		}
 
 		if len(reviewerLogins) > 0 {
@@ -145,12 +145,12 @@ func RunRepo(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.csv", repoConfig.csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			g.GetUsersByLogins(reviewerLogins, ctx, writer, userFetchedCallback)
+			g.GetUsersByLogins(ctx, reviewerLogins, writer, userFetchedCallback)
 		}
 	}
 }
 
-func userFetchedCallback(fetched fetch.UserFetchResult, ctx context.Context, csvWriter *csv.Writer) {
+func userFetchedCallback(ctx context.Context, fetched fetch.UserFetchResult, csvWriter *csv.Writer) {
 	if fetched.Err != nil {
 		log.WithError(fetched.Err).Warn()
 		return
@@ -181,6 +181,7 @@ func isLocationInteresting(location string) bool {
 	return false
 }
 
+// MustInitCsv makes sure we have a csv to write to
 func MustInitCsv(csvPath string, writeHeader bool) *csv.Writer {
 	var (
 		csvFile *os.File

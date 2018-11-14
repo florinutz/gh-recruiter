@@ -13,15 +13,17 @@ import (
 	"github.com/shurcooL/githubv4"
 )
 
+// GithubFetcher provides caching for a github graphql client's queries
 type GithubFetcher struct {
 	Client *githubv4.Client
 	Cache  *cache.Cache
 }
 
+// GetUser retrieves a gh user
 func (g *GithubFetcher) GetUser(ctx context.Context, login string) (User, error) {
 	var q struct {
 		User      User `graphql:"user(login:$login)"`
-		RateLimit RateLimit
+		RateLimit rateLimit
 	}
 	vars := map[string]interface{}{"login": githubv4.String(login), "maxOrgs": githubv4.Int(3)}
 
@@ -69,9 +71,9 @@ func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[
 	return nil
 }
 
-// GetUsersByLogins is blocking
-func (g *GithubFetcher) GetUsersByLogins(logins []string, ctx context.Context, writer *csv.Writer,
-	fetchCallback func(fetched UserFetchResult, ctx context.Context, writer *csv.Writer)) {
+// GetUsersByLogins retrieves users referenced by their logins
+func (g *GithubFetcher) GetUsersByLogins(ctx context.Context, logins []string, writer *csv.Writer,
+	fetchCallback func(ctx context.Context, fetched UserFetchResult, writer *csv.Writer)) {
 	out := make(chan UserFetchResult)
 	sent := 0
 	for _, login := range logins {
@@ -92,7 +94,7 @@ func (g *GithubFetcher) GetUsersByLogins(logins []string, ctx context.Context, w
 	for i := 0; i < len(logins); i++ {
 		select {
 		case fetchedUser := <-out:
-			fetchCallback(fetchedUser, ctx, writer)
+			fetchCallback(ctx, fetchedUser, writer)
 		case <-time.After(10 * time.Second):
 			fmt.Println("timeout")
 		}
@@ -103,8 +105,9 @@ func (g *GithubFetcher) GetUsersByLogins(logins []string, ctx context.Context, w
 	}
 }
 
+// GetPRs returns PRs together with their interesting data
 func (g *GithubFetcher) GetPRs(ctx context.Context, repoOwner string, repoName string, after *githubv4.String,
-	depth int) (results []PRWithData, err error) {
+	depth int) (results []PrWithData, err error) {
 	const PrsPerBatch = 100
 
 	variables := map[string]interface{}{
@@ -120,11 +123,11 @@ func (g *GithubFetcher) GetPRs(ctx context.Context, repoOwner string, repoName s
 	var q struct {
 		Repository struct {
 			PullRequests struct {
-				PageInfo PageInfo
-				Nodes    []PRWithData
+				PageInfo pageInfo
+				Nodes    []PrWithData
 			} `graphql:"pullRequests(after: $after, first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
 		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
-		RateLimit RateLimit
+		RateLimit rateLimit
 	}
 
 	err = g.Query(ctx, &q, variables)
@@ -151,16 +154,17 @@ func (g *GithubFetcher) GetPRs(ctx context.Context, repoOwner string, repoName s
 	return
 }
 
+// GetForkers gets forkers for the repo
 func (g *GithubFetcher) GetForkers(ctx context.Context, repoOwner string, repoName string, after *githubv4.String,
 	pageSize int) (results []string, err error) {
 	var q struct {
 		Repository struct {
 			Forks struct {
-				PageInfo PageInfo
-				Nodes    ForkNodes
+				PageInfo pageInfo
+				Nodes    forkNodes
 			} `graphql:"forks(first: $itemsPerBatch, after: $after, orderBy: {field: STARGAZERS, direction: DESC})"`
 		} `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
-		RateLimit RateLimit
+		RateLimit rateLimit
 	}
 
 	err = g.Query(ctx, &q, map[string]interface{}{

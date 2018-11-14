@@ -20,6 +20,7 @@ var rootCmd = &cobra.Command{
 	Short: "hr github needs in the cli",
 }
 
+// Execute runs the rootCmd
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

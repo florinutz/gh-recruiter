@@ -6,26 +6,28 @@ import (
 	"github.com/shurcooL/githubv4"
 )
 
-type Repository struct {
-	Id              *githubv4.String
-	Url             *githubv4.URI
+type repository struct {
+	ID              *githubv4.String
+	URL             *githubv4.URI
 	Description     *githubv4.String
-	HomepageUrl     *githubv4.URI
+	HomepageURL     *githubv4.URI
 	NameWithOwner   *githubv4.String
 	PrimaryLanguage LangFragment
-	Forks           Forks      `graphql:"forks(first: $forksPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
-	PullRequests    PRs        `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
-	Releases        Releases   `graphql:"releases(first: $releasesPerBatch, orderBy: {field: CREATED_AT, direction: DESC})"`
-	Stargazers      Stargazers `graphql:"stargazers(first: $stargazersPerBatch, orderBy: {field: STARRED_AT, direction: DESC})"`
+	Forks           forks      `graphql:"forks(first: $forksPerBatch, orderBy: {field: STARGAZERS, direction: DESC})"`
+	PullRequests    prs        `graphql:"pullRequests(first: $prsPerBatch, orderBy: {field: UPDATED_AT, direction: DESC})"`
+	Releases        releases   `graphql:"releases(first: $releasesPerBatch, orderBy: {field: CREATED_AT, direction: DESC})"`
+	Stargazers      stargazers `graphql:"stargazers(first: $stargazersPerBatch, orderBy: {field: STARRED_AT, direction: DESC})"`
 }
 
+// LangFragment is a graphql fragment for language
 type LangFragment struct {
-	Id   *githubv4.ID
+	ID   *githubv4.ID
 	Name *githubv4.String
 }
 
+// User represents a gh user's interesting data
 type User struct {
-	Id        githubv4.ID
+	ID        githubv4.ID
 	Login     githubv4.String
 	Location  githubv4.String
 	Email     githubv4.String
@@ -42,7 +44,7 @@ type User struct {
 	Organizations struct {
 		TotalCount githubv4.Int
 		// Nodes      []struct {
-		// 	Id          githubv4.ID
+		// 	ID          githubv4.ID
 		// 	Login       githubv4.String
 		// 	Email       *githubv4.String
 		// 	WebsiteUrl  *githubv4.URI
@@ -75,23 +77,23 @@ func (u User) FormatForCsv() (result []string) {
 	return
 }
 
-type PRReview struct {
+type prReview struct {
 	Author struct {
 		Login githubv4.String
 	}
 	LastEditedAt githubv4.DateTime
-	Url          githubv4.URI
+	URL          githubv4.URI
 }
 
-type PRComment struct {
+type prComment struct {
 	Author struct {
 		Login githubv4.String
 	}
 	LastEditedAt githubv4.DateTime
-	Url          githubv4.URI
+	URL          githubv4.URI
 }
 
-type PRCommit struct {
+type prCommit struct {
 	Commit struct {
 		Additions githubv4.Int
 		Deletions githubv4.Int
@@ -102,38 +104,38 @@ type PRCommit struct {
 		Status       struct {
 			State githubv4.StatusState
 		}
-		Url githubv4.URI
+		URL githubv4.URI
 	}
 }
 
-type PR struct {
+type pr struct {
 	Commits struct {
-		PageInfo PageInfo
-		Nodes    []PRCommit
+		PageInfo pageInfo
+		Nodes    []prCommit
 	} `graphql:"commits(first: $prCommitsPerBatch)"`
 	Comments struct {
-		PageInfo PageInfo
-		Nodes    []PRComment
+		PageInfo pageInfo
+		Nodes    []prComment
 	} `graphql:"comments(first: $prCommentsPerBatch)"`
 	Reviews struct {
-		PageInfo PageInfo
-		Nodes    []PRReview
+		PageInfo pageInfo
+		Nodes    []prReview
 	} `graphql:"reviews(first: $prReviewsPerBatch)"`
 }
 
-type PRs struct {
-	PageInfo PageInfo
-	Nodes    []PR
+type prs struct {
+	PageInfo pageInfo
+	Nodes    []pr
 }
 
-type Releases struct {
+type releases struct {
 	TotalCount *githubv4.Int
 	Nodes      []struct {
 		Author User
 	}
 }
 
-type Stargazers struct {
+type stargazers struct {
 	TotalCount *githubv4.Int
 	Edges      []struct {
 		StarredAt *githubv4.DateTime
@@ -141,57 +143,60 @@ type Stargazers struct {
 	}
 }
 
-type Forks struct {
+type forks struct {
 	TotalCount *githubv4.Int
 	Nodes      []struct {
 		CreatedAt *githubv4.DateTime
 		Owner     struct {
-			Id    *githubv4.ID
+			ID    *githubv4.ID
 			Login *githubv4.String
-			Url   *githubv4.URI
+			URL   *githubv4.URI
 		}
 	}
 }
 
-type RateLimit struct {
+type rateLimit struct {
 	Cost      *githubv4.Int
 	Limit     *githubv4.Int
 	Remaining *githubv4.Int
 	ResetAt   *githubv4.DateTime
 }
 
+// QueryRepo wraps the query with rateLimit info
 type QueryRepo struct {
-	Repository Repository `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
-	RateLimit  RateLimit
+	Repository repository `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
+	RateLimit  rateLimit
 }
 
+// UserFetchResult is used when returning users in a chan
 type UserFetchResult struct {
 	Login string
 	User  User
 	Err   error
 }
 
-type PageInfo struct {
+type pageInfo struct {
 	EndCursor   githubv4.String
 	HasNextPage githubv4.Boolean
 }
 
-type ForkNodes []struct {
+type forkNodes []struct {
 	Owner struct {
 		Login string
 	}
 }
 
-type PRWithData struct {
-	Url      githubv4.URI
+// PrWithData represents the PR and its data
+type PrWithData struct {
+	URL      githubv4.URI
 	Title    githubv4.String
 	Comments struct {
-		Nodes []PRComment
+		Nodes []prComment
 	} `graphql:"comments(first: $prItemsPerBatch)"`
 	Reviews struct {
-		Nodes []PRReview
+		Nodes []prReview
 	} `graphql:"comments(first: $prItemsPerBatch)"`
 	Commits struct {
-		Nodes []PRCommit
+		Nodes []prCommit
 	} `graphql:"commits(first: $prCommitsPerBatch)"`
 }
