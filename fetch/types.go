@@ -1,4 +1,4 @@
-package cmd
+package fetch
 
 import (
 	"strconv"
@@ -163,4 +163,35 @@ type RateLimit struct {
 type QueryRepo struct {
 	Repository Repository `graphql:"repository(owner:$repositoryOwner,name:$repositoryName)"`
 	RateLimit  RateLimit
+}
+
+type UserFetchResult struct {
+	Login string
+	User  User
+	Err   error
+}
+
+type PageInfo struct {
+	EndCursor   githubv4.String
+	HasNextPage githubv4.Boolean
+}
+
+type ForkNodes []struct {
+	Owner struct {
+		Login string
+	}
+}
+
+type PRWithData struct {
+	Url      githubv4.URI
+	Title    githubv4.String
+	Comments struct {
+		Nodes []PRComment
+	} `graphql:"comments(first: $prItemsPerBatch)"`
+	Reviews struct {
+		Nodes []PRReview
+	} `graphql:"comments(first: $prItemsPerBatch)"`
+	Commits struct {
+		Nodes []PRCommit
+	} `graphql:"commits(first: $prCommitsPerBatch)"`
 }
