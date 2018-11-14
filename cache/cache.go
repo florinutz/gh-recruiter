@@ -37,26 +37,26 @@ func NewCache(bucketName string, validity time.Duration) (cache *Cache, err erro
 	return
 }
 
+type cachePayload struct {
+	creationTime time.Time
+	query        interface{}
+}
+
 func (cache Cache) WriteQuery(q interface{}, variables map[string]interface{}) error {
 	hash, err := getHashForCall(q, variables)
 	if err != nil {
 		return errors.Wrap(err, "coultn't compute ghv4 call hash")
 	}
 	cacheKey := fmt.Sprintf("query-%s", hash)
-	toMarshal := queryWithTime{Time: time.Now(), Query: q}
+	toMarshal := cachePayload{creationTime: time.Now(), query: q}
 
-	buf := bytes.NewBuffer([]byte{})
-	encoder := gob.NewEncoder(buf)
+	var buf bytes.Buffer
+	encoder := gob.NewEncoder(&buf)
 	encoder.Encode(toMarshal)
 
 	cache.Set(cacheKey, buf.Bytes())
 
 	return nil
-}
-
-type queryWithTime struct {
-	Time  time.Time
-	Query interface{}
 }
 
 func (cache Cache) ReadQuery(q interface{}, variables map[string]interface{}) (
@@ -67,26 +67,25 @@ func (cache Cache) ReadQuery(q interface{}, variables map[string]interface{}) (
 	}
 	cacheKey := fmt.Sprintf("query-%s", hash)
 
-	var wt queryWithTime
+	wt := cachePayload{}
 	item, ok := cache.Get(cacheKey)
 	if !ok {
 		return nil, fmt.Errorf("no cache for key %s", cacheKey)
 	}
 
-	buf := bytes.NewBuffer([]byte{})
-	buf.Write(item)
+	buf := bytes.NewBuffer(item)
 
 	decoder := gob.NewDecoder(buf)
-	err = decoder.Decode(q)
+	err = decoder.Decode(&wt)
 	if err != nil {
 		return nil, errors.Wrap(err, "cache unmarshaling error")
 	}
 
-	if time.Since(wt.Time) > cache.validity {
-		return nil, fmt.Errorf("no cache for key %s", cacheKey)
+	if time.Since(wt.creationTime) > cache.validity {
+		return nil, fmt.Errorf("cache expired for key %s", cacheKey)
 	}
 
-	return wt.Query, nil
+	return wt.query, nil
 }
 
 func getJson(v interface{}, indent string, forZeroVal bool) (string, error) {
