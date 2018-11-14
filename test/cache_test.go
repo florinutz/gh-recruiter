@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-type forCaching struct {
+type ForCaching struct {
 	Caca string
 }
 
@@ -17,7 +17,7 @@ func TestCache_Write_Read_Query(t *testing.T) {
 		variables map[string]interface{}
 	}
 
-	q1 := forCaching{"sasa"}
+	q1 := ForCaching{"sasa"}
 
 	tests := []struct {
 		name     string
@@ -51,18 +51,18 @@ func TestCache_Write_Read_Query(t *testing.T) {
 
 			err = c.WriteQuery(tt.args.q, tt.args.variables)
 			if (err != nil) != tt.wantWriteErr {
-				t.Errorf("Cache.WriteQuery() error = %v, wantWriteErr %v", err, tt.wantWriteErr)
+				t.Errorf("Cache.WriteQuery()\nerror: %v\nwantWriteErr %v", err, tt.wantWriteErr)
 				return
 			}
 
 			got, err := c.ReadQuery(tt.args.q, tt.args.variables)
 			if (err != nil) != tt.wantReadErr {
-				t.Errorf("Cache.ReadQuery() error = %v, wantReadErr %v", err, tt.wantReadErr)
+				t.Errorf("Cache.ReadQuery()\nerror: %v\nwantReadErr %v", err, tt.wantReadErr)
 				return
 			}
 
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Cache.ReadQuery() = %v, want %v", got, tt.want)
+				t.Errorf("Cache.ReadQuery() = %v\nwant %v", got, tt.want)
 			}
 		})
 	}
