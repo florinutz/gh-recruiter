@@ -1,3 +1,2 @@
 .idea
-# https://developers.google.com/sheets/api/quickstart/go:
-credentials.json
+vendor

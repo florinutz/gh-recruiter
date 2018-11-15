@@ -58,7 +58,6 @@ func (cache Cache) WriteQuery(q interface{}, variables map[string]interface{}) e
 	if err = encoder.Encode(payload); err != nil {
 		return errors.Wrap(err, "cache data encoding error")
 	}
-	fmt.Println(buf.String())
 
 	cache.Set(cacheKey, buf.Bytes())
 
@@ -78,7 +77,6 @@ func (cache Cache) ReadQuery(q interface{}, variables map[string]interface{}) (i
 	}
 
 	buf := bytes.NewBuffer(item)
-	fmt.Println(buf.String())
 
 	decoder := gob.NewDecoder(buf)
 	empty := payload{}
@@ -98,12 +96,8 @@ func getHashForCall(q interface{}, variables map[string]interface{}) (string, er
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 
-	if err := enc.Encode(q); err != nil {
-		return "", errors.Wrap(err, "error while gob encoding query")
-	}
-
-	if err := enc.Encode(variables); err != nil {
-		return "", errors.Wrap(err, "error while gob encoding vars")
+	if err1, err2 := enc.Encode(q), enc.Encode(variables); err1 != nil || err2 != nil {
+		return "", errors.New("error while serializing data in order to be written in the cache")
 	}
 
 	sum := md5.Sum(buf.Bytes())

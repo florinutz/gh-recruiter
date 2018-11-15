@@ -43,18 +43,7 @@ func (g *GithubFetcher) Query(ctx context.Context, q interface{}, variables map[
 
 	if g.Cache != nil {
 		if itemFromCache, err := g.Cache.ReadQuery(q, variables); err == nil {
-			vq := reflect.ValueOf(q).Elem()
-			vi := reflect.ValueOf(itemFromCache)
-			vq.Set(vi)
-			// q = itemFromCache
-
-			// reflect.ValueOf(q).Elem().Set(reflect.ValueOf(itemFromCache))
-			fmt.Printf("inside func: %+v\n\n", itemFromCache)
-			fmt.Printf("typeof q: %s\n typeof variables: %s\n typeof itemFromCache: %s\n\n",
-				reflect.TypeOf(q),
-				reflect.TypeOf(variables),
-				reflect.TypeOf(itemFromCache),
-			)
+			q = itemFromCache
 			return nil
 		}
 	}
