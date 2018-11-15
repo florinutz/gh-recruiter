@@ -25,32 +25,33 @@ var repoCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(2),
 }
 
+// RepoSettings represents the settings for individual repos
 type RepoSettings struct {
-	csv         string
-	verbose     bool
-	withForkers bool
-	withPRs     bool
+	Csv         string `toml:"csv_output"`
+	Verbose     bool   `toml:"verbose"`
+	WithForkers bool   `toml:"fetch_forkers"`
+	WithPRs     bool   `toml:"fetch_prs"`
 }
 
-var repoCmdConfig struct {
-	csv   string
-	token string
-
-	withForkers bool
-	withPRs     bool
-
-	repos []RepoSettings
+type RepoConfig struct {
+	Token string `toml:"github_token"`
+	RepoSettings
+	Repos []RepoSettings `toml:"repos"`
 }
+
+// RepoCmdConfig covers all config options for this command
+var RepoCmdConfig RepoConfig
 
 const cacheBucketName = "gh-recruiter"
 
 func init() {
-	repoCmd.Flags().StringVarP(&repoCmdConfig.csv, "output", "o", "/tmp/github",
-		"csv output file")
-	repoCmd.Flags().BoolVarP(&repoCmdConfig.withForkers, "forkers", "f", false, "fetch forkers?")
-	repoCmd.Flags().BoolVarP(&repoCmdConfig.withPRs, "prs", "p", false,
+	repoCmd.Flags().StringVarP(&RepoCmdConfig.Csv, "output", "o", "/tmp/github",
+		"Csv output file")
+	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithForkers, "forkers", "f", false,
+		"fetch forkers?")
+	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithPRs, "prs", "p", false,
 		"fetch users involved in prs?")
-	rootCmd.PersistentFlags().StringVarP(&repoCmdConfig.token, "token", "t", "",
+	rootCmd.PersistentFlags().StringVarP(&RepoCmdConfig.Token, "token", "t", "",
 		"github token with proper perms")
 
 	viper.BindPFlag("csv_output", repoCmd.Flag("output"))
@@ -69,7 +70,7 @@ func runRepo(cmd *cobra.Command, args []string) {
 		log.Warnf("Running with no cache: %s\n", err)
 	}
 	ctx := context.Background()
-	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: repoCmdConfig.token}))
+	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: RepoCmdConfig.Token}))
 	ghClient := githubv4.NewClient(oauthClient)
 
 	repos := viper.GetStringMap("repos")
@@ -77,21 +78,21 @@ func runRepo(cmd *cobra.Command, args []string) {
 
 	g := fetch.GithubFetcher{Client: ghClient, Cache: c}
 
-	if repoCmdConfig.withForkers {
+	if RepoCmdConfig.WithForkers {
 		logins, err := g.GetForkers(ctx, args[0], args[1], (*githubv4.String)(nil), 100)
 		if err != nil {
 			log.WithError(err).Fatal()
 		}
 
 		var writer *csv.Writer
-		if repoCmdConfig.csv != "" {
-			path := fmt.Sprintf("%s_%s-%s_forkers.csv", repoCmdConfig.csv, args[0], args[1])
+		if RepoCmdConfig.Csv != "" {
+			path := fmt.Sprintf("%s_%s-%s_forkers.Csv", RepoCmdConfig.Csv, args[0], args[1])
 			writer = MustInitCsv(path, true)
 		}
 		g.GetUsersByLogins(ctx, logins, writer, userFetchedCallback)
 	}
 
-	if repoCmdConfig.withPRs {
+	if RepoCmdConfig.WithPRs {
 		prs, err := g.GetPRs(ctx, args[0], args[1], (*githubv4.String)(nil), 0)
 		if err != nil {
 			log.WithError(err).Fatal()
@@ -128,8 +129,8 @@ func runRepo(cmd *cobra.Command, args []string) {
 				fmt.Printf("\n%d commits:\n", commitsCount)
 
 				var writer *csv.Writer
-				if repoCmdConfig.csv != "" {
-					path := fmt.Sprintf("%s_%s-%s_pr_commits.csv", repoCmdConfig.csv, args[0], args[1])
+				if RepoCmdConfig.Csv != "" {
+					path := fmt.Sprintf("%s_%s-%s_pr_commits.Csv", RepoCmdConfig.Csv, args[0], args[1])
 					writer = MustInitCsv(path, true)
 				}
 
@@ -149,8 +150,8 @@ func runRepo(cmd *cobra.Command, args []string) {
 
 		if len(commenterLogins) > 0 {
 			var writer *csv.Writer
-			if repoCmdConfig.csv != "" {
-				path := fmt.Sprintf("%s_%s-%s_pr_commenters.csv", repoCmdConfig.csv, args[0], args[1])
+			if RepoCmdConfig.Csv != "" {
+				path := fmt.Sprintf("%s_%s-%s_pr_commenters.Csv", RepoCmdConfig.Csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
 			g.GetUsersByLogins(ctx, commenterLogins, writer, userFetchedCallback)
@@ -158,8 +159,8 @@ func runRepo(cmd *cobra.Command, args []string) {
 
 		if len(reviewerLogins) > 0 {
 			var writer *csv.Writer
-			if repoCmdConfig.csv != "" {
-				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.csv", repoCmdConfig.csv, args[0], args[1])
+			if RepoCmdConfig.Csv != "" {
+				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.Csv", RepoCmdConfig.Csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
 			g.GetUsersByLogins(ctx, reviewerLogins, writer, userFetchedCallback)

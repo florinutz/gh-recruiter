@@ -40,8 +40,8 @@ func init() {
 	}
 	rootCmd.PersistentFlags().StringVar(&rootConfig.cfgFile, "config", "",
 		fmt.Sprintf("config file (default is %s/%s.toml)", homeDir, configName))
-	rootCmd.PersistentFlags().BoolVarP(&rootConfig.verbose, "verbose", "v", false,
-		"verbose?")
+	rootCmd.PersistentFlags().BoolVarP(&rootConfig.verbose, "Verbose", "v", false,
+		"Verbose?")
 
 	cobra.OnInitialize(initConfig)
 }
@@ -64,7 +64,7 @@ func initConfig() {
 
 	viper.SetEnvPrefix("gr")
 
-	viper.BindPFlag("verbose", repoCmd.Flag("verbose"))
+	viper.BindPFlag("Verbose", repoCmd.Flag("Verbose"))
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.WithError(err).Fatal("Can't read config")
