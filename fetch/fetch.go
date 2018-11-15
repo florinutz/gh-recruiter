@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/csv"
 	"errors"
-	"fmt"
 	"math/rand"
 	"reflect"
 	"time"
+
+	"google.golang.org/appengine/log"
 
 	"github.com/florinutz/gh-recruiter/cache"
 	"github.com/shurcooL/githubv4"
@@ -85,7 +86,7 @@ func (g *GithubFetcher) GetUsersByLogins(ctx context.Context, logins []string, w
 		case fetchedUser := <-out:
 			fetchCallback(ctx, fetchedUser, writer)
 		case <-time.After(10 * time.Second):
-			fmt.Println("timeout")
+			log.Warningf(ctx, "timeout")
 		}
 	}
 
@@ -162,7 +163,6 @@ func (g *GithubFetcher) GetForkers(ctx context.Context, repoOwner string, repoNa
 		"itemsPerBatch":   githubv4.Int(pageSize),
 		"after":           after,
 	})
-	fmt.Printf("outside func: %+v\n", q)
 	if err != nil {
 		return
 	}
