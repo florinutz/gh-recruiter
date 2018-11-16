@@ -55,8 +55,9 @@ func runConfig(cmd *cobra.Command, args []string) {
 				Csv:     "/tmp/gh-hcl",
 			},
 			{
-				Name:        "openzipkin/zipkin-go",
-				WithForkers: true,
+				Name:    "openzipkin/zipkin-go",
+				Forkers: true,
+				PRs:     true,
 			},
 		},
 	}

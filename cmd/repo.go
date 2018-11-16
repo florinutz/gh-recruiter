@@ -17,6 +17,24 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// RepoSettings represents the settings for individual repos
+type RepoSettings struct {
+	Name    string `toml:"name" comment:"<owner>/<repoName>"`
+	Csv     string `toml:"csv_output" commented:"true" comment:"if this is present, csv will pe outputted at the desired path"`
+	Verbose bool   `toml:"verbose" comment:"too much output will be shown, but some might enjoy this"`
+	Forkers bool   `toml:"forkers" comment:"analyze forkers"`
+	PRs     bool   `toml:"prs" commented:"true" comment:"analyze PRs"`
+}
+
+type RepoConfig struct {
+	Token       string         `toml:"token" commented:"true" comment:"github token. Supplying it as the GR_TOKEN env var will take precedence over this"`
+	Csv         string         `toml:"csv_output" commented:"true" comment:"root setting for csv output. Can be overwritten at repo level"`
+	Verbose     bool           `toml:"verbose" commented:"true" comment:"show more output"`
+	WithForkers bool           `toml:"forkers" comment:"parse forkers"`
+	WithPRs     bool           `toml:"prs" commented:"true" comment:"parse prs"`
+	Repos       []RepoSettings `toml:"repo" comment:"each repository can overwrite the base settings"`
+}
+
 // repoCmd represents the repo command
 var repoCmd = &cobra.Command{
 	Use:   "repo",
@@ -28,24 +46,6 @@ var repoCmd = &cobra.Command{
 	},
 	Run:  runRepo,
 	Args: cobra.ExactArgs(2),
-}
-
-// RepoSettings represents the settings for individual repos
-type RepoSettings struct {
-	Name        string `toml:"name" comment:"<owner>/<repoName>"`
-	Csv         string `toml:"csv_output" commented:"true" comment:"if this is present, csv will pe outputted at the desired path"`
-	Verbose     bool   `toml:"verbose" commented:"true" comment:"too much output will be shown, but some might enjoy this"`
-	WithForkers bool   `toml:"forkers" commented:"true" comment:"analyze forkers"`
-	WithPRs     bool   `toml:"prs" commented:"true" comment:"analyze PRs"`
-}
-
-type RepoConfig struct {
-	Token       string         `toml:"token" comment:"github token. Supplying it as the GR_TOKEN env var will take precedence over this config file"`
-	Csv         string         `toml:"csv_output" commented:"true" comment:"root setting for csv output. Can be overwritten at repo level"`
-	Verbose     bool           `toml:"verbose" commented:"true" comment:"show more output"`
-	WithForkers bool           `toml:"forkers" comment:"parse forkers"`
-	WithPRs     bool           `toml:"prs" commented:"true" comment:"parse prs"`
-	Repos       []RepoSettings `toml:"repos" comment:"each repository can overwrite the base settings"`
 }
 
 // RepoCmdConfig covers all config options for this command
@@ -76,7 +76,7 @@ func init() {
 }
 
 func runRepo(cmd *cobra.Command, args []string) {
-	fmt.Printf("%q\n", RepoCmdConfig.Repos)
+	fmt.Printf("%+q\n", RepoCmdConfig)
 	return
 	c, err := cache.NewCache(cacheBucketName, 168*time.Hour)
 	if err != nil {
