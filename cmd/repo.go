@@ -24,6 +24,7 @@ var repoCmd = &cobra.Command{
 	PreRun: func(cmd *cobra.Command, args []string) {
 		viper.BindEnv("token")
 		RepoCmdConfig.Token = viper.GetString("token")
+		viper.UnmarshalKey("repo", &RepoCmdConfig.Repos)
 	},
 	Run:  runRepo,
 	Args: cobra.ExactArgs(2),
@@ -60,8 +61,10 @@ const (
 func init() {
 	repoCmd.Flags().StringVarP(&RepoCmdConfig.Csv, repoFlagOutput, "o", "",
 		"Csv output file")
+
 	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithForkers, repoFlagForkers, "f", false,
 		"fetch forkers?")
+
 	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithPRs, repoFlagPrs, "p", false,
 		"fetch users involved in prs?")
 
@@ -73,6 +76,8 @@ func init() {
 }
 
 func runRepo(cmd *cobra.Command, args []string) {
+	fmt.Printf("%q\n", RepoCmdConfig.Repos)
+	return
 	c, err := cache.NewCache(cacheBucketName, 168*time.Hour)
 	if err != nil {
 		log.Warnf("Running with no cache: %s\n", err)
