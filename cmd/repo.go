@@ -42,9 +42,9 @@ type RepoConfig struct {
 	Repos       []RepoSettings `toml:"repo" comment:"each repository can overwrite the base settings"`
 }
 
-// RepoCmdConfig covers all config options for this command
+// repoCmdConfig covers all config options for this command
 var (
-	RepoCmdConfig RepoConfig
+	repoCmdConfig RepoConfig
 	Fetcher       fetch.GithubFetcher
 )
 
@@ -58,13 +58,13 @@ var repoCmd = &cobra.Command{
 }
 
 func init() {
-	repoCmd.Flags().StringVarP(&RepoCmdConfig.Csv, repoFlagOutput, "o", "",
+	repoCmd.Flags().StringVarP(&repoCmdConfig.Csv, repoFlagOutput, "o", "",
 		"Csv output file")
 
-	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithForkers, repoFlagForkers, "f", false,
+	repoCmd.Flags().BoolVarP(&repoCmdConfig.WithForkers, repoFlagForkers, "f", false,
 		"fetch forkers?")
 
-	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithPRs, repoFlagPrs, "p", false,
+	repoCmd.Flags().BoolVarP(&repoCmdConfig.WithPRs, repoFlagPrs, "p", false,
 		"fetch users involved in prs?")
 
 	viper.BindPFlag("csv_output", repoCmd.Flag(repoFlagOutput))
@@ -76,40 +76,40 @@ func init() {
 
 func preRunRepo(cmd *cobra.Command, args []string) {
 	viper.BindEnv("token")
-	RepoCmdConfig.Token = viper.GetString("token")
-	viper.UnmarshalKey("repo", &RepoCmdConfig.Repos)
+	repoCmdConfig.Token = viper.GetString("token")
+	viper.UnmarshalKey("repo", &repoCmdConfig.Repos)
 
 	c, err := cache.NewCache(cacheBucketName, 168*time.Hour)
 	if err != nil {
 		log.Warnf("Running with no cache: %s\n", err)
 	}
 	ctx := context.Background()
-	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: RepoCmdConfig.Token}))
+	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: repoCmdConfig.Token}))
 	ghClient := githubv4.NewClient(oauthClient)
 	Fetcher = fetch.GithubFetcher{Client: ghClient, Cache: c}
 }
 
 func runRepo(cmd *cobra.Command, args []string) {
-	// fmt.Printf("%+q\n", RepoCmdConfig)
+	// fmt.Printf("%+q\n", repoCmdConfig)
 	// return
 
 	ctx := context.Background()
 
-	if RepoCmdConfig.WithForkers {
+	if repoCmdConfig.WithForkers {
 		logins, err := Fetcher.GetForkers(ctx, args[0], args[1], (*githubv4.String)(nil), 100)
 		if err != nil {
 			log.WithError(err).Fatal()
 		}
 
 		var writer *csv.Writer
-		if RepoCmdConfig.Csv != "" {
-			path := fmt.Sprintf("%s_%s-%s_forkers.Csv", RepoCmdConfig.Csv, args[0], args[1])
+		if repoCmdConfig.Csv != "" {
+			path := fmt.Sprintf("%s_%s-%s_forkers.Csv", repoCmdConfig.Csv, args[0], args[1])
 			writer = MustInitCsv(path, true)
 		}
 		Fetcher.GetUsersByLogins(ctx, logins, writer, userFetchedCallback)
 	}
 
-	if RepoCmdConfig.WithPRs {
+	if repoCmdConfig.WithPRs {
 		prs, err := Fetcher.GetPRs(ctx, args[0], args[1], (*githubv4.String)(nil), 0)
 		if err != nil {
 			log.WithError(err).Fatal()
@@ -146,8 +146,8 @@ func runRepo(cmd *cobra.Command, args []string) {
 				fmt.Printf("\n%d commits:\n", commitsCount)
 
 				var writer *csv.Writer
-				if RepoCmdConfig.Csv != "" {
-					path := fmt.Sprintf("%s_%s-%s_pr_commits.Csv", RepoCmdConfig.Csv, args[0], args[1])
+				if repoCmdConfig.Csv != "" {
+					path := fmt.Sprintf("%s_%s-%s_pr_commits.Csv", repoCmdConfig.Csv, args[0], args[1])
 					writer = MustInitCsv(path, true)
 				}
 
@@ -167,8 +167,8 @@ func runRepo(cmd *cobra.Command, args []string) {
 
 		if len(commenterLogins) > 0 {
 			var writer *csv.Writer
-			if RepoCmdConfig.Csv != "" {
-				path := fmt.Sprintf("%s_%s-%s_pr_commenters.Csv", RepoCmdConfig.Csv, args[0], args[1])
+			if repoCmdConfig.Csv != "" {
+				path := fmt.Sprintf("%s_%s-%s_pr_commenters.Csv", repoCmdConfig.Csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
 			Fetcher.GetUsersByLogins(ctx, commenterLogins, writer, userFetchedCallback)
@@ -176,8 +176,8 @@ func runRepo(cmd *cobra.Command, args []string) {
 
 		if len(reviewerLogins) > 0 {
 			var writer *csv.Writer
-			if RepoCmdConfig.Csv != "" {
-				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.Csv", RepoCmdConfig.Csv, args[0], args[1])
+			if repoCmdConfig.Csv != "" {
+				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.Csv", repoCmdConfig.Csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
 			Fetcher.GetUsersByLogins(ctx, reviewerLogins, writer, userFetchedCallback)
