@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// repoCmd represents the repo command
+// configCmd generates configs
 var configCmd = &cobra.Command{
 	Use:   "gen-config",
 	Short: "generate config",
