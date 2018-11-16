@@ -21,8 +21,12 @@ import (
 var repoCmd = &cobra.Command{
 	Use:   "repo",
 	Short: "filters users who interacted with the repo by location",
-	Run:   runRepo,
-	Args:  cobra.ExactArgs(2),
+	PreRun: func(cmd *cobra.Command, args []string) {
+		viper.BindEnv("token")
+		RepoCmdConfig.Token = viper.GetString("token")
+	},
+	Run:  runRepo,
+	Args: cobra.ExactArgs(2),
 }
 
 // RepoSettings represents the settings for individual repos
@@ -35,35 +39,35 @@ type RepoSettings struct {
 }
 
 type RepoConfig struct {
-	Token       string         `toml:"token" comment:"github token. Supplying it as the GR_TOKEN env var will take precedence over this"`
+	Token       string         `toml:"token" comment:"github token. Supplying it as the GR_TOKEN env var will take precedence over this config file"`
 	Csv         string         `toml:"csv_output" commented:"true" comment:"root setting for csv output. Can be overwritten at repo level"`
 	Verbose     bool           `toml:"verbose" commented:"true" comment:"show more output"`
 	WithForkers bool           `toml:"forkers" comment:"parse forkers"`
-	WithPRs     bool           `toml:"prs" comment:"parse prs"`
-	Repos       []RepoSettings `comment:"each repository can overwrite the base settings"`
+	WithPRs     bool           `toml:"prs" commented:"true" comment:"parse prs"`
+	Repos       []RepoSettings `toml:"repos" comment:"each repository can overwrite the base settings"`
 }
 
 // RepoCmdConfig covers all config options for this command
 var RepoCmdConfig RepoConfig
 
-const cacheBucketName = "gh-recruiter"
+const (
+	cacheBucketName = "gh-recruiter"
+	repoFlagOutput  = "output"
+	repoFlagForkers = "forkers"
+	repoFlagPrs     = "prs"
+)
 
 func init() {
-	repoCmd.Flags().StringVarP(&RepoCmdConfig.Csv, "output", "o", "/tmp/github",
+	repoCmd.Flags().StringVarP(&RepoCmdConfig.Csv, repoFlagOutput, "o", "",
 		"Csv output file")
-	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithForkers, "forkers", "f", false,
+	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithForkers, repoFlagForkers, "f", false,
 		"fetch forkers?")
-	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithPRs, "prs", "p", false,
+	repoCmd.Flags().BoolVarP(&RepoCmdConfig.WithPRs, repoFlagPrs, "p", false,
 		"fetch users involved in prs?")
-	rootCmd.PersistentFlags().StringVarP(&RepoCmdConfig.Token, "token", "t", "",
-		"github token with proper perms")
 
-	viper.BindPFlag("csv_output", repoCmd.Flag("output"))
-	viper.BindPFlag("forkers", repoCmd.Flag("forkers"))
-	viper.BindPFlag("prs", repoCmd.Flag("prs"))
-
-	viper.BindEnv("token")
-	viper.BindPFlag("token", repoCmd.Flag("token"))
+	viper.BindPFlag("csv_output", repoCmd.Flag(repoFlagOutput))
+	viper.BindPFlag("forkers", repoCmd.Flag(repoFlagForkers))
+	viper.BindPFlag("prs", repoCmd.Flag(repoFlagPrs))
 
 	rootCmd.AddCommand(repoCmd)
 }
@@ -76,9 +80,6 @@ func runRepo(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: RepoCmdConfig.Token}))
 	ghClient := githubv4.NewClient(oauthClient)
-
-	repos := viper.GetStringMap("repos")
-	log.WithField("caca", repos).Debug()
 
 	g := fetch.GithubFetcher{Client: ghClient, Cache: c}
 

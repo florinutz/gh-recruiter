@@ -31,17 +31,23 @@ func Execute() {
 	}
 }
 
-const configName = ".gh-recruiter"
+const (
+	configName      = ".gh-recruiter"
+	rootFlagVerbose = "verbose"
+)
 
 func init() {
 	homeDir, err := homedir.Dir()
 	if err != nil {
 		log.Fatal("Could not find home dir")
 	}
-	rootCmd.PersistentFlags().StringVar(&rootConfig.cfgFile, "config", "",
+	rootCmd.PersistentFlags().StringVarP(&rootConfig.cfgFile, "config", "c", "",
 		fmt.Sprintf("config file (default is %s/%s.toml)", homeDir, configName))
-	rootCmd.PersistentFlags().BoolVarP(&rootConfig.verbose, "Verbose", "v", false,
+
+	rootCmd.PersistentFlags().BoolVarP(&rootConfig.verbose, rootFlagVerbose, "v", false,
 		"Verbose?")
+
+	viper.BindPFlag("verbose", repoCmd.Flag(rootFlagVerbose))
 
 	cobra.OnInitialize(initConfig)
 }
@@ -59,12 +65,12 @@ func initConfig() {
 		}
 
 		viper.AddConfigPath(home)
+		viper.AddConfigPath(".")
+
 		viper.SetConfigName(configName)
 	}
 
 	viper.SetEnvPrefix("gr")
-
-	viper.BindPFlag("Verbose", repoCmd.Flag("Verbose"))
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.WithError(err).Fatal("Can't read config")
