@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/BurntSushi/toml"
+	"github.com/pelletier/go-toml"
 
 	"github.com/pkg/errors"
 
@@ -41,17 +41,28 @@ func runConfig(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.WithError(err).Fatal()
 	}
+	defer f.Close()
 
 	conf := RepoConfig{
-		Token: "hsjkahskahkjsahkhskahkjs",
-		RepoSettings: RepoSettings{
-			Verbose:     true,
-			WithForkers: false,
-			WithPRs:     true,
-			Csv:         "/tmp/testing_this_",
+		Token:       "your_github_token_here",
+		Verbose:     false,
+		WithForkers: true,
+		Csv:         "/tmp/testing_this_",
+		Repos: []RepoSettings{
+			{
+				Name:    "hashicorp/hcl",
+				Verbose: true,
+				Csv:     "/tmp/gh-hcl",
+			},
+			{
+				Name:        "openzipkin/zipkin-go",
+				WithForkers: true,
+			},
 		},
 	}
-	toml.NewEncoder().Encode(conf)
+	if err := toml.NewEncoder(f).Encode(conf); err != nil {
+		log.WithError(err).Fatal()
+	}
 }
 
 func pathIsValid(fp string) bool {

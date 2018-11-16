@@ -10,6 +10,7 @@ require (
 	github.com/gregjones/httpcache v0.0.0-20181110185634-c63ab54fda8f
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/mitchellh/go-homedir v1.0.0
+	github.com/pelletier/go-toml v1.2.0
 	github.com/pkg/errors v0.8.0
 	github.com/shurcooL/githubv4 v0.0.0-20181111053151-5851091a7645
 	github.com/shurcooL/graphql v0.0.0-20181114023618-16b88644589a // indirect

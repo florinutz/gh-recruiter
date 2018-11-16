@@ -27,16 +27,20 @@ var repoCmd = &cobra.Command{
 
 // RepoSettings represents the settings for individual repos
 type RepoSettings struct {
-	Csv         string `toml:"csv_output"`
-	Verbose     bool   `toml:"verbose"`
-	WithForkers bool   `toml:"fetch_forkers"`
-	WithPRs     bool   `toml:"fetch_prs"`
+	Name        string `toml:"name" comment:"<owner>/<repoName>"`
+	Csv         string `toml:"csv_output" commented:"true" comment:"if this is present, csv will pe outputted at the desired path"`
+	Verbose     bool   `toml:"verbose" commented:"true" comment:"too much output will be shown, but some might enjoy this"`
+	WithForkers bool   `toml:"forkers" commented:"true" comment:"analyze forkers"`
+	WithPRs     bool   `toml:"prs" commented:"true" comment:"analyze PRs"`
 }
 
 type RepoConfig struct {
-	Token string `toml:"github_token"`
-	RepoSettings
-	Repos []RepoSettings `toml:"repos"`
+	Token       string         `toml:"token" comment:"github token. Supplying it as the GR_TOKEN env var will take precedence over this"`
+	Csv         string         `toml:"csv_output" commented:"true" comment:"root setting for csv output. Can be overwritten at repo level"`
+	Verbose     bool           `toml:"verbose" commented:"true" comment:"show more output"`
+	WithForkers bool           `toml:"forkers" comment:"parse forkers"`
+	WithPRs     bool           `toml:"prs" comment:"parse prs"`
+	Repos       []RepoSettings `comment:"each repository can overwrite the base settings"`
 }
 
 // RepoCmdConfig covers all config options for this command
