@@ -17,6 +17,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	cacheBucketName = "gh-recruiter"
+	repoFlagOutput  = "output"
+	repoFlagForkers = "forkers"
+	repoFlagPrs     = "prs"
+)
+
 // RepoSettings represents the settings for individual repos
 type RepoSettings struct {
 	Name    string `toml:"name" comment:"<owner>/<repoName>"`
@@ -35,28 +42,20 @@ type RepoConfig struct {
 	Repos       []RepoSettings `toml:"repo" comment:"each repository can overwrite the base settings"`
 }
 
+// RepoCmdConfig covers all config options for this command
+var (
+	RepoCmdConfig RepoConfig
+	Fetcher       fetch.GithubFetcher
+)
+
 // repoCmd represents the repo command
 var repoCmd = &cobra.Command{
-	Use:   "repo",
-	Short: "filters users who interacted with the repo by location",
-	PreRun: func(cmd *cobra.Command, args []string) {
-		viper.BindEnv("token")
-		RepoCmdConfig.Token = viper.GetString("token")
-		viper.UnmarshalKey("repo", &RepoCmdConfig.Repos)
-	},
-	Run:  runRepo,
-	Args: cobra.ExactArgs(2),
+	Use:    "repo",
+	Short:  "filters users who interacted with the repo by location",
+	PreRun: preRunRepo,
+	Run:    runRepo,
+	Args:   cobra.ExactArgs(2),
 }
-
-// RepoCmdConfig covers all config options for this command
-var RepoCmdConfig RepoConfig
-
-const (
-	cacheBucketName = "gh-recruiter"
-	repoFlagOutput  = "output"
-	repoFlagForkers = "forkers"
-	repoFlagPrs     = "prs"
-)
 
 func init() {
 	repoCmd.Flags().StringVarP(&RepoCmdConfig.Csv, repoFlagOutput, "o", "",
@@ -75,9 +74,11 @@ func init() {
 	rootCmd.AddCommand(repoCmd)
 }
 
-func runRepo(cmd *cobra.Command, args []string) {
-	fmt.Printf("%+q\n", RepoCmdConfig)
-	return
+func preRunRepo(cmd *cobra.Command, args []string) {
+	viper.BindEnv("token")
+	RepoCmdConfig.Token = viper.GetString("token")
+	viper.UnmarshalKey("repo", &RepoCmdConfig.Repos)
+
 	c, err := cache.NewCache(cacheBucketName, 168*time.Hour)
 	if err != nil {
 		log.Warnf("Running with no cache: %s\n", err)
@@ -85,11 +86,17 @@ func runRepo(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: RepoCmdConfig.Token}))
 	ghClient := githubv4.NewClient(oauthClient)
+	Fetcher = fetch.GithubFetcher{Client: ghClient, Cache: c}
+}
 
-	g := fetch.GithubFetcher{Client: ghClient, Cache: c}
+func runRepo(cmd *cobra.Command, args []string) {
+	// fmt.Printf("%+q\n", RepoCmdConfig)
+	// return
+
+	ctx := context.Background()
 
 	if RepoCmdConfig.WithForkers {
-		logins, err := g.GetForkers(ctx, args[0], args[1], (*githubv4.String)(nil), 100)
+		logins, err := Fetcher.GetForkers(ctx, args[0], args[1], (*githubv4.String)(nil), 100)
 		if err != nil {
 			log.WithError(err).Fatal()
 		}
@@ -99,11 +106,11 @@ func runRepo(cmd *cobra.Command, args []string) {
 			path := fmt.Sprintf("%s_%s-%s_forkers.Csv", RepoCmdConfig.Csv, args[0], args[1])
 			writer = MustInitCsv(path, true)
 		}
-		g.GetUsersByLogins(ctx, logins, writer, userFetchedCallback)
+		Fetcher.GetUsersByLogins(ctx, logins, writer, userFetchedCallback)
 	}
 
 	if RepoCmdConfig.WithPRs {
-		prs, err := g.GetPRs(ctx, args[0], args[1], (*githubv4.String)(nil), 0)
+		prs, err := Fetcher.GetPRs(ctx, args[0], args[1], (*githubv4.String)(nil), 0)
 		if err != nil {
 			log.WithError(err).Fatal()
 		}
@@ -164,7 +171,7 @@ func runRepo(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_commenters.Csv", RepoCmdConfig.Csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			g.GetUsersByLogins(ctx, commenterLogins, writer, userFetchedCallback)
+			Fetcher.GetUsersByLogins(ctx, commenterLogins, writer, userFetchedCallback)
 		}
 
 		if len(reviewerLogins) > 0 {
@@ -173,7 +180,7 @@ func runRepo(cmd *cobra.Command, args []string) {
 				path := fmt.Sprintf("%s_%s-%s_pr_reviewers.Csv", RepoCmdConfig.Csv, args[0], args[1])
 				writer = MustInitCsv(path, true)
 			}
-			g.GetUsersByLogins(ctx, reviewerLogins, writer, userFetchedCallback)
+			Fetcher.GetUsersByLogins(ctx, reviewerLogins, writer, userFetchedCallback)
 		}
 	}
 }
