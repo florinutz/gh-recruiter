@@ -5,8 +5,6 @@ require (
 	github.com/birkelund/boltdbcache v0.0.0-20171002130706-d9be082dca00
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/coreos/bbolt v1.3.0 // indirect
-	github.com/google/go-github v0.0.0-20180810171520-747f93dd9b48
-	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/gregjones/httpcache v0.0.0-20181110185634-c63ab54fda8f
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/mitchellh/go-homedir v1.0.0

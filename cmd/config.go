@@ -43,26 +43,29 @@ func runConfig(cmd *cobra.Command, args []string) {
 	}
 	defer f.Close()
 
-	conf := RepoConfig{
-		Token:       "your_github_token_here",
-		Verbose:     false,
-		WithForkers: true,
-		Csv:         "/tmp/testing_this_",
-		Repos: []RepoSettings{
-			{
-				Name:    "hashicorp/hcl",
+	conf := RepoCommandConfig{
+		Token:   "your_github_token_here",
+		Verbose: false,
+		Forkers: false,
+		Csv:     "/tmp/testing_this_",
+		Repos: map[string]*IndividualRepoSettings{
+			"hashicorp/hcl": {
 				Verbose: true,
 				Csv:     "/tmp/gh-hcl",
 			},
-			{
-				Name:    "openzipkin/zipkin-go",
+			"openzipkin/zipkin-go": {
 				Forkers: true,
 				PRs:     true,
 			},
 		},
 	}
-	if err := toml.NewEncoder(f).Encode(conf); err != nil {
-		log.WithError(err).Fatal()
+	if err := toml.NewEncoder(f).QuoteMapKeys(true).Encode(conf); err != nil {
+		log.WithError(err).Fatal("error while encoding config toml")
+	}
+	log.WithField("file", incoming).Info("config written")
+
+	if err = toml.NewEncoder(os.Stdout).QuoteMapKeys(true).Encode(conf); err != nil {
+		log.WithError(err).Fatal("error encoding")
 	}
 }
 
