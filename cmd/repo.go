@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/florinutz/gh-recruiter/cache"
 	"github.com/florinutz/gh-recruiter/fetch"
 	"github.com/shurcooL/githubv4"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
 )
 
@@ -28,28 +29,33 @@ const (
 
 // IndividualRepoSettings represents the settings for individual repos
 type IndividualRepoSettings struct {
-	owner   string
-	name    string
+	owner  string
+	name   string
+	Tokens []string `toml:"tokens" commented:"true" comment:"(pool of) github token(s). 
+		Supplying tokens via the GR_TOKEN env var will take precedence over this."`
 	Csv     string `toml:"csv" commented:"true" comment:"if this is present, csv will pe outputted at the desired path" omitempty:"true"`
 	Verbose bool   `toml:"verbose" comment:"too much output will be shown, but some might enjoy this" omitempty:"true"`
 	Forkers bool   `toml:"forkers" comment:"analyze forkers" omitempty:"true"`
 	PRs     bool   `toml:"prs" commented:"true" comment:"analyze PRs" omitempty:"true"`
 }
 
-// RepoCommandConfig represents configs for this command
-type RepoCommandConfig struct {
-	Token   string `toml:"token" commented:"true" comment:"github token. Supplying it as the GR_TOKEN env var will take precedence over this"`
-	Csv     string `toml:"csv" commented:"true" comment:"root setting for csv output. Can be overwritten at repo level"`
-	Verbose bool   `toml:"verbose" comment:"show more output"`
-	Forkers bool   `toml:"forkers" comment:"parse forkers"`
-	PRs     bool   `toml:"prs" comment:"parse prs"`
+// RepoConfig represents configs for this command
+type RepoConfig struct {
+	Tokens []string `toml:"tokens" commented:"true" comment:"(pool of) github token(s). 
+		Supplying tokens via the GR_TOKEN env var will take precedence over this."`
+
+	Csv string `toml:"csv" commented:"true" comment:"root setting for csv output. Can be overwritten at repo level"`
+
+	Forkers bool `toml:"forkers" comment:"parse forkers"`
+	PRs     bool `toml:"prs" comment:"parse prs"`
+	Verbose bool `toml:"verbose" comment:"show more output"`
 
 	Repos map[string]*IndividualRepoSettings `toml:"repos" comment:"each repository can overwrite the base settings"`
 }
 
 // RepoCmdConfig covers all config options for this command
 var (
-	RepoCmdConfig RepoCommandConfig
+	RepoCmdConfig RepoConfig
 	Fetcher       fetch.GithubFetcher
 )
 
@@ -63,6 +69,10 @@ var repoCmd = &cobra.Command{
 }
 
 func init() {
+	if veep == nil {
+		veep = viper.New()
+	}
+
 	repoCmd.Flags().StringVarP(&RepoCmdConfig.Csv, repoFlagCsvOutput, "o", "",
 		"Csv output file")
 	repoCmd.Flags().BoolVarP(&RepoCmdConfig.Forkers, repoFlagForkers, "f", false,
@@ -70,14 +80,15 @@ func init() {
 	repoCmd.Flags().BoolVarP(&RepoCmdConfig.PRs, repoFlagPrs, "p", false,
 		"fetch users involved in prs?")
 
-	viper.BindEnv("token")
-	if err := viper.BindPFlag("csv_output", repoCmd.Flag(repoFlagCsvOutput)); err != nil {
+	veep.BindEnv("token")
+
+	if err := veep.BindPFlag("csv", repoCmd.Flag(repoFlagCsvOutput)); err != nil {
 		log.WithError(err).Fatal("config binding error")
 	}
-	if err := viper.BindPFlag("forkers", repoCmd.Flag(repoFlagForkers)); err != nil {
+	if err := veep.BindPFlag("forkers", repoCmd.Flag(repoFlagForkers)); err != nil {
 		log.WithError(err).Fatal("config binding error")
 	}
-	if err := viper.BindPFlag("prs", repoCmd.Flag(repoFlagPrs)); err != nil {
+	if err := veep.BindPFlag("prs", repoCmd.Flag(repoFlagPrs)); err != nil {
 		log.WithError(err).Fatal("config binding error")
 	}
 
@@ -86,16 +97,17 @@ func init() {
 
 func preRunRepo(cmd *cobra.Command, args []string) {
 	var err error
-	if err = viper.Unmarshal(&RepoCmdConfig); err != nil {
-		log.WithError(err).Fatal("couldn't parse config")
+	s := veep.AllSettings()
+	if err = veep.Unmarshal(&RepoCmdConfig); err != nil {
+		log.WithError(err).WithField("cca", s).Fatal("couldn't parse config")
 	}
 	log.WithField("config", RepoCmdConfig).Debug("fetched config")
 
 	ctx := context.Background()
 
 	ghClient := githubv4.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: RepoCmdConfig.Token})))
-	log.Debugf("Github access token: %s\n", RepoCmdConfig.Token)
+		&oauth2.Token{AccessToken: RepoCmdConfig.Tokens})))
+	log.Debugf("Github access token: %s\n", RepoCmdConfig.Tokens)
 
 	var c *cache.Cache
 	if c, err = cache.NewCache(cacheBucketName, 168*time.Hour); err != nil {
@@ -109,6 +121,7 @@ func preRunRepo(cmd *cobra.Command, args []string) {
 
 func runRepo(cmd *cobra.Command, args []string) {
 	//ctx := context.Background()
+	// todo merge individual repo settings over the root ones
 	if RepoCmdConfig.Forkers {
 		// DoForkers(ctx, args)
 	}

@@ -43,8 +43,8 @@ func runConfig(cmd *cobra.Command, args []string) {
 	}
 	defer f.Close()
 
-	conf := RepoCommandConfig{
-		Token:   "your_github_token_here",
+	conf := RepoConfig{
+		Tokens:  "your_github_token_here",
 		Verbose: false,
 		Forkers: false,
 		Csv:     "/tmp/testing_this_",

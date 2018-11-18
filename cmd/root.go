@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+var veep *viper.Viper
+
 var rootConfig struct {
 	cfgFile string
 	verbose bool
@@ -37,6 +39,10 @@ const (
 )
 
 func init() {
+	if veep == nil {
+		veep = viper.New()
+	}
+
 	homeDir, err := homedir.Dir()
 	if err != nil {
 		log.Fatal("Could not find home dir")
@@ -47,7 +53,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&rootConfig.verbose, rootFlagVerbose, "v", false,
 		"Verbose?")
 
-	viper.BindPFlag("verbose", repoCmd.Flag(rootFlagVerbose))
+	veep.BindPFlag("verbose", rootCmd.Flag(rootFlagVerbose))
 
 	cobra.OnInitialize(initConfig)
 }
@@ -56,7 +62,7 @@ func init() {
 func initConfig() {
 	if rootConfig.cfgFile != "" {
 		// Use config file from the flag.
-		viper.SetConfigFile(rootConfig.cfgFile)
+		veep.SetConfigFile(rootConfig.cfgFile)
 	} else {
 		// Find home directory.
 		home, err := homedir.Dir()
@@ -64,15 +70,15 @@ func initConfig() {
 			log.WithError(err).Fatal()
 		}
 
-		viper.AddConfigPath(home)
-		viper.AddConfigPath(".")
+		veep.AddConfigPath(home)
+		veep.AddConfigPath(".")
 
-		viper.SetConfigName(configName)
+		veep.SetConfigName(configName)
 	}
 
-	viper.SetEnvPrefix("gr")
+	veep.SetEnvPrefix("gr")
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := veep.ReadInConfig(); err != nil {
 		log.WithError(err).Fatal("Can't read config")
 	}
 }
