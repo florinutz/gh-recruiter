@@ -44,18 +44,28 @@ func runConfig(cmd *cobra.Command, args []string) {
 	defer f.Close()
 
 	conf := RepoConfig{
-		Tokens:  "your_github_token_here",
-		Verbose: false,
-		Forkers: false,
-		Csv:     "/tmp/testing_this_",
-		Repos: map[string]*IndividualRepoSettings{
-			"hashicorp/hcl": {
-				Verbose: true,
-				Csv:     "/tmp/gh-hcl",
+		RepoSettings: RepoSettings{
+			Tokens:  []string{"your_github_token_here"},
+			Verbose: false,
+			Forkers: false,
+			Csv:     "/tmp/testing_this_",
+		},
+		Repos: []*repo{
+			{
+				Owner: "hashicorp",
+				Name:  "hcl",
+				RepoSettings: RepoSettings{
+					Verbose: true,
+					Csv:     "/tmp/gh-hcl",
+				},
 			},
-			"openzipkin/zipkin-go": {
-				Forkers: true,
-				PRs:     true,
+			{
+				Owner: "openzipkin",
+				Name:  "zipkin-go",
+				RepoSettings: RepoSettings{
+					Forkers: true,
+					PRs:     true,
+				},
 			},
 		},
 	}

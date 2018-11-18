@@ -27,10 +27,7 @@ const (
 	repoFlagRepos     = "repo"
 )
 
-// IndividualRepoSettings represents the settings for individual repos
-type IndividualRepoSettings struct {
-	owner  string
-	name   string
+type RepoSettings struct {
 	Tokens []string `toml:"tokens" commented:"true" comment:"(pool of) github token(s). 
 		Supplying tokens via the GR_TOKEN env var will take precedence over this."`
 	Csv     string `toml:"csv" commented:"true" comment:"if this is present, csv will pe outputted at the desired path" omitempty:"true"`
@@ -39,18 +36,17 @@ type IndividualRepoSettings struct {
 	PRs     bool   `toml:"prs" commented:"true" comment:"analyze PRs" omitempty:"true"`
 }
 
+// repo represents the settings for individual repos
+type repo struct {
+	Owner string `toml:"owner" comment:"repo owner" omitempty:"false"`
+	Name  string `toml:"name" comment:"repo owner" omitempty:"false"`
+	RepoSettings
+}
+
 // RepoConfig represents configs for this command
 type RepoConfig struct {
-	Tokens []string `toml:"tokens" commented:"true" comment:"(pool of) github token(s). 
-		Supplying tokens via the GR_TOKEN env var will take precedence over this."`
-
-	Csv string `toml:"csv" commented:"true" comment:"root setting for csv output. Can be overwritten at repo level"`
-
-	Forkers bool `toml:"forkers" comment:"parse forkers"`
-	PRs     bool `toml:"prs" comment:"parse prs"`
-	Verbose bool `toml:"verbose" comment:"show more output"`
-
-	Repos map[string]*IndividualRepoSettings `toml:"repos" comment:"each repository can overwrite the base settings"`
+	RepoSettings `toml:"global" comment:"global settings that will be overridden by individual repo settings"`
+	Repos        []*repo `toml:"repos" comment:"each repository can overwrite the base settings"`
 }
 
 // RepoCmdConfig covers all config options for this command
@@ -106,7 +102,7 @@ func preRunRepo(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
 
 	ghClient := githubv4.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: RepoCmdConfig.Tokens})))
+		&oauth2.Token{AccessToken: RepoCmdConfig.Tokens[0]})))
 	log.Debugf("Github access token: %s\n", RepoCmdConfig.Tokens)
 
 	var c *cache.Cache
@@ -130,7 +126,7 @@ func runRepo(cmd *cobra.Command, args []string) {
 	}
 }
 
-func (r *IndividualRepoSettings) DoForkers(ctx context.Context, owner, repo string) {
+func (r *repo) DoForkers(ctx context.Context, owner, repo string) {
 	logins, err := Fetcher.GetForkers(ctx, owner, repo, (*githubv4.String)(nil), 100)
 	if err != nil {
 		log.WithError(err).Fatal()
@@ -143,7 +139,7 @@ func (r *IndividualRepoSettings) DoForkers(ctx context.Context, owner, repo stri
 	Fetcher.GetUsersByLogins(ctx, logins, writer, userFetchedCallback)
 }
 
-func (r *IndividualRepoSettings) DoPRs(ctx context.Context, args []string) {
+func (r *repo) DoPRs(ctx context.Context, args []string) {
 	var commenterLogins, reviewerLogins []string
 
 	prs, err := Fetcher.GetPRs(ctx, args[0], args[1], (*githubv4.String)(nil), 0)
