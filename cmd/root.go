@@ -79,6 +79,6 @@ func initConfig() {
 	veep.SetEnvPrefix("gr")
 
 	if err := veep.ReadInConfig(); err != nil {
-		log.WithError(err).Fatal("Can't read config")
+		log.WithError(err).Warn("Can't read config")
 	}
 }

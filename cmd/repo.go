@@ -101,9 +101,10 @@ func preRunRepo(cmd *cobra.Command, args []string) {
 
 	ctx := context.Background()
 
+	token := RepoCmdConfig.Tokens[0]
 	ghClient := githubv4.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: RepoCmdConfig.Tokens[0]})))
-	log.Debugf("Github access token: %s\n", RepoCmdConfig.Tokens)
+		&oauth2.Token{AccessToken: token})))
+	log.Debugf("Github access token: %s\n", token)
 
 	var c *cache.Cache
 	if c, err = cache.NewCache(cacheBucketName, 168*time.Hour); err != nil {
