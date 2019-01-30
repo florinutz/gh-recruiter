@@ -45,7 +45,7 @@ func runConfig(cmd *cobra.Command, args []string) {
 
 	conf := RepoConfig{
 		RepoSettings: RepoSettings{
-			Tokens:  []string{"your_github_token_here"},
+			Tokens:  []string{"token1", "token2", "token3"},
 			Verbose: false,
 			Forkers: false,
 			Csv:     "/tmp/testing_this_",

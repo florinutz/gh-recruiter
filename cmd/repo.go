@@ -28,12 +28,11 @@ const (
 )
 
 type RepoSettings struct {
-	Tokens []string `toml:"tokens" commented:"true" comment:"(pool of) github token(s). 
-		Supplying tokens via the GR_TOKEN env var will take precedence over this."`
-	Csv     string `toml:"csv" commented:"true" comment:"if this is present, csv will pe outputted at the desired path" omitempty:"true"`
-	Verbose bool   `toml:"verbose" comment:"too much output will be shown, but some might enjoy this" omitempty:"true"`
-	Forkers bool   `toml:"forkers" comment:"analyze forkers" omitempty:"true"`
-	PRs     bool   `toml:"prs" commented:"true" comment:"analyze PRs" omitempty:"true"`
+	Tokens  []string `toml:"tokens" commented:"false" comment:"Pool of github token to be used randomly. \n Supplying tokens via the GR_TOKEN env var will take precedence over this."`
+	Csv     string   `toml:"csv" commented:"true" comment:"if this is present, csv will pe outputted at the desired path" omitempty:"true"`
+	Verbose bool     `toml:"verbose" comment:"too much output will be shown, but some might enjoy this" omitempty:"true"`
+	Forkers bool     `toml:"forkers" comment:"analyze forkers" omitempty:"true"`
+	PRs     bool     `toml:"prs" commented:"true" comment:"analyze PRs" omitempty:"true"`
 }
 
 // repo represents the settings for individual repos
